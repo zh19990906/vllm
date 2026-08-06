@@ -1,0 +1,33 @@
+name: cache-workload-fix-test
+
+on:
+  pull_request:
+    paths:
+      - "benchmarks/cache/**"
+      - ".github/workflows/cache-workload-fix-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: "3.11"
+      - name: Install cache benchmark test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "pydantic>=2.12" \
+            prometheus-client \
+            psutil \
+            pytest \
+            pyyaml \
+            requests
+      - name: Run cache benchmark tests
+        run: pytest -q benchmarks/cache/tests
+      - name: Compile cache benchmark package
+        run: python -m compileall -q benchmarks/cache
