@@ -28,6 +28,6 @@ jobs:
             pyyaml \
             requests
       - name: Run cache benchmark tests
-        run: pytest -q benchmarks/cache/tests
+        run: python -m pytest -q benchmarks/cache/tests
       - name: Compile cache benchmark package
         run: python -m compileall -q benchmarks/cache
