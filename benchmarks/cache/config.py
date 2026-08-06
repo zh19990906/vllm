@@ -208,11 +208,14 @@ def assert_owned_child(path: Path, root: Path) -> None:
 
 
 def create_owned_directory(path: Path, root: Path) -> Path:
-    """Create a suite-owned child directory and its safety marker."""
+    """Create a suite-owned child without claiming existing user directories."""
     resolved_path, resolved_root = _resolved_owned_child(path, root)
     resolved_root.mkdir(parents=True, exist_ok=True)
-    resolved_path.mkdir(parents=True, exist_ok=True)
     marker = resolved_path / OWNERSHIP_MARKER
-    marker.touch(exist_ok=True)
+    if resolved_path.exists():
+        assert_owned_child(resolved_path, resolved_root)
+        return resolved_path
+    resolved_path.mkdir(parents=True, exist_ok=False)
+    marker.touch(exist_ok=False)
     assert_owned_child(resolved_path, resolved_root)
     return resolved_path
