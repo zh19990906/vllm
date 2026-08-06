@@ -19,6 +19,20 @@ class FakeTokenizer:
         return " ".join(str(token_id) for token_id in token_ids)
 
 
+class ExpandingTokenizer(FakeTokenizer):
+    expansion_interval = 16
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+        del add_special_tokens
+        source = [int(part) for part in text.split()] if text else []
+        encoded: list[int] = []
+        for index, token_id in enumerate(source, start=1):
+            encoded.append(token_id)
+            if index % self.expansion_interval == 0:
+                encoded.append(self.vocab_size - 1)
+        return encoded
+
+
 def _rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
@@ -84,6 +98,34 @@ def test_metadata_records_hashes_and_observed_lengths(
     assert set(metadata["files"]["measure"]["observed_token_lengths"]) == {
         cold_case.prompt_tokens
     }
+
+
+def test_expanding_tokenizer_converges_to_requested_length(
+    suite_config, warm_exact_case
+) -> None:
+    artifacts = generate_workload(
+        warm_exact_case, suite_config, ExpandingTokenizer()
+    )
+    metadata = json.loads(artifacts.metadata_path.read_text(encoding="utf-8"))
+    lengths = metadata["files"]["measure"]["observed_token_lengths"]
+    tolerance = suite_config.workload.token_length_tolerance
+    assert all(
+        abs(length - warm_exact_case.prompt_tokens) <= tolerance
+        for length in lengths
+    )
+
+
+def test_expanding_tokenizer_preserves_shared_encoded_prefix(
+    suite_config, shared_prefix_case
+) -> None:
+    tokenizer = ExpandingTokenizer()
+    artifacts = generate_workload(shared_prefix_case, suite_config, tokenizer)
+    rows = _rows(artifacts.measure_path)
+    prefix_len = round(
+        shared_prefix_case.prompt_tokens * shared_prefix_case.prefix_ratio
+    )
+    encoded = [tokenizer.encode(row["prompt"]) for row in rows]
+    assert len({tuple(tokens[:prefix_len]) for tokens in encoded}) == 1
 
 
 def test_benchmark_command_uses_native_custom_dataset(
