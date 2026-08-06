@@ -562,6 +562,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             {"status": "not_collected", "reason": "dry_run"},
         )
         rebuild_reports(run_dir)
+        print(f"Dry run planned {len(cases)} cases in {run_dir}")
         return 0
 
     _atomic_json(run_dir / "environment.json", collect_environment_evidence())
