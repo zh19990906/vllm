@@ -120,3 +120,14 @@ def test_required_lists_must_not_be_empty(valid_config_dict: dict) -> None:
     valid_config_dict["workload"]["prompt_tokens"] = []
     with pytest.raises(ValidationError, match="prompt_tokens"):
         SuiteConfig.model_validate(valid_config_dict)
+
+
+def test_create_owned_directory_rejects_existing_unmarked_child(tmp_path: Path) -> None:
+    child = tmp_path / "existing"
+    child.mkdir()
+    (child / "user-data.txt").write_text("do not claim", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="ownership marker"):
+        create_owned_directory(child, tmp_path)
+
+    assert not (child / ".vllm-cache-benchmark-owned").exists()
