@@ -27,7 +27,28 @@ jobs:
             pytest \
             pyyaml \
             requests
-      - name: Run cache benchmark tests
-        run: python -m pytest -q benchmarks/cache/tests
+      - name: Run cache benchmark tests except fake E2E
+        run: |
+          python -m pytest -q benchmarks/cache/tests \
+            -k 'not test_fake_executable_end_to_end'
+      - name: Run fake E2E with failure evidence
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -vv -s \
+            benchmarks/cache/tests/test_run_suite.py::test_fake_executable_end_to_end \
+            --basetemp="$RUNNER_TEMP/cache-pytest"
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "===== retained test files ====="
+            find "$RUNNER_TEMP/cache-pytest" -type f -print | sort
+            echo "===== scenario results and logs ====="
+            find "$RUNNER_TEMP/cache-pytest" -type f \
+              \( -name 'scenario-results.jsonl' \
+              -o -name '*.stderr.log' \
+              -o -name '*.stdout.log' \) \
+              -exec sh -c 'echo "######## $1 ########"; cat "$1"' _ {} \;
+          fi
+          exit "$status"
       - name: Compile cache benchmark package
         run: python -m compileall -q benchmarks/cache
