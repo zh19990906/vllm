@@ -73,6 +73,34 @@ def _allowed_tokens(tokenizer: TokenizerProtocol) -> tuple[int, ...]:
     return allowed
 
 
+def _next_suffix_length(
+    *,
+    current_suffix_length: int,
+    requested_length: int,
+    observed_length: int,
+    fixed_prefix_length: int,
+) -> int:
+    target_suffix_length = requested_length - fixed_prefix_length
+    observed_suffix_length = observed_length - fixed_prefix_length
+
+    if observed_suffix_length > 0 and current_suffix_length > 0:
+        candidate = round(
+            current_suffix_length
+            * target_suffix_length
+            / observed_suffix_length
+        )
+    elif observed_length < requested_length:
+        candidate = current_suffix_length + 1
+    else:
+        candidate = current_suffix_length - 1
+
+    candidate = max(0, candidate)
+    if candidate == current_suffix_length and observed_length != requested_length:
+        candidate += 1 if observed_length < requested_length else -1
+        candidate = max(0, candidate)
+    return candidate
+
+
 def _sample_prompt(
     *,
     rng: random.Random,
@@ -84,21 +112,30 @@ def _sample_prompt(
     required_encoded_prefix: tuple[int, ...] | None = None,
     seen: set[tuple[int, ...]] | None = None,
 ) -> tuple[str, list[int]]:
-    suffix_length = requested_length - len(fixed_prefix)
-    if suffix_length < 0:
+    target_suffix_length = requested_length - len(fixed_prefix)
+    if target_suffix_length < 0:
         raise WorkloadGenerationError(
             f"prefix length {len(fixed_prefix)} exceeds requested length "
             f"{requested_length}"
         )
 
+    candidate_suffix_length = target_suffix_length
     last_observed = -1
     for _ in range(32):
         token_ids = list(fixed_prefix)
-        token_ids.extend(rng.choice(allowed_tokens) for _ in range(suffix_length))
+        token_ids.extend(
+            rng.choice(allowed_tokens) for _ in range(candidate_suffix_length)
+        )
         prompt = tokenizer.decode(token_ids, skip_special_tokens=True)
         encoded = tokenizer.encode(prompt, add_special_tokens=False)
         last_observed = len(encoded)
         if abs(last_observed - requested_length) > tolerance:
+            candidate_suffix_length = _next_suffix_length(
+                current_suffix_length=candidate_suffix_length,
+                requested_length=requested_length,
+                observed_length=last_observed,
+                fixed_prefix_length=len(fixed_prefix),
+            )
             continue
         encoded_tuple = tuple(encoded)
         if required_encoded_prefix is not None and tuple(
