@@ -66,3 +66,44 @@ def suite_config(valid_config_dict: dict):
     from benchmarks.cache.config import SuiteConfig
 
     return SuiteConfig.model_validate(deepcopy(valid_config_dict))
+
+
+def _case_fixture(suite_config, tmp_path: Path, workload_kind: str, prefix_ratio=0.0):
+    from benchmarks.cache.scenarios import build_execution_cases
+
+    run_dir = suite_config.results.root_dir / "fixture-run"
+    cases = build_execution_cases(suite_config, run_dir)
+    return next(
+        case
+        for case in cases
+        if case.workload_kind == workload_kind
+        and case.prefix_ratio == prefix_ratio
+        and case.prompt_tokens == suite_config.workload.prompt_tokens[0]
+        and case.concurrency == suite_config.workload.concurrency[0]
+        and case.request_rate == suite_config.workload.request_rate[0]
+    )
+
+
+@pytest.fixture
+def cold_case(suite_config, tmp_path: Path):
+    return _case_fixture(suite_config, tmp_path, "cold-unique")
+
+
+@pytest.fixture
+def warm_exact_case(suite_config, tmp_path: Path):
+    return _case_fixture(suite_config, tmp_path, "warm-exact-prefix")
+
+
+@pytest.fixture
+def shared_prefix_case(suite_config, tmp_path: Path):
+    return _case_fixture(suite_config, tmp_path, "shared-prefix", 0.5)
+
+
+@pytest.fixture
+def mixed_prefix_case(suite_config, tmp_path: Path):
+    return _case_fixture(suite_config, tmp_path, "mixed-prefix")
+
+
+@pytest.fixture
+def restart_case(suite_config, tmp_path: Path):
+    return _case_fixture(suite_config, tmp_path, "restart-persistence")
