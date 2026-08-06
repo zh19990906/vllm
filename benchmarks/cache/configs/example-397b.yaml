@@ -1,0 +1,42 @@
+schema_version: 1
+model:
+  id: /models/replace-with-397b-model
+  served_name: benchmark-397b
+  dtype: auto
+  max_model_len: 65536
+  trust_remote_code: false
+parallelism:
+  tensor_parallel_size: 8
+  pipeline_parallel_size: 1
+server:
+  host: 127.0.0.1
+  port: 8100
+  startup_timeout_seconds: 3600
+  shutdown_timeout_seconds: 180
+  extra_args: []
+  env: {}
+cache:
+  gpu_memory_utilization: 0.9
+  cpu_bytes_to_use: 549755813888
+  offload_block_size: 64
+  eviction_policy: lru
+  filesystem:
+    enabled: true
+    root_dir: /mnt/nvme/vllm-kv-cache
+    read_threads: 32
+    write_threads: 16
+workload:
+  seed: 1
+  tokenizer: /models/replace-with-397b-model
+  prompt_tokens: [4096, 16384, 32768]
+  output_tokens: 128
+  concurrency: [1, 4, 8]
+  request_rate: [inf]
+  requests_per_case: 16
+  shared_prefix_ratios: [0.0, 0.5, 0.9]
+  warmup_requests: 2
+  token_length_tolerance: 2
+results:
+  root_dir: ./results/cache
+  keep_server_logs: true
+  fail_fast: false
