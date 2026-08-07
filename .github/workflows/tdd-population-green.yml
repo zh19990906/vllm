@@ -1,0 +1,61 @@
+name: tdd-population-green
+
+on:
+  push:
+    branches:
+      - feature/cache-eviction-restore-benchmark
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    if: ${{ !contains(github.event.head_commit.message, '[population-green]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/cache-eviction-restore-benchmark
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install cache benchmark test dependencies
+        run: python -m pip install pytest pydantic PyYAML psutil requests prometheus-client
+      - name: Apply minimal population result validation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('benchmarks/cache/run_suite.py')
+          text = path.read_text()
+
+          helper_anchor = '''def _ensure_command_success(result: CommandResult, stage: str) -> None:\n    if result.timed_out:\n        raise BenchmarkExecutionError(f"{stage} command timed out", result)\n    if result.returncode != 0:\n        raise BenchmarkExecutionError(\n            f"{stage} command exited with return code {result.returncode}", result\n        )\n\n\n'''
+          helper = '''def _validate_population_result(\n    path: Path, expected: int, result: CommandResult\n) -> None:\n    try:\n        payload = json.loads(path.read_text(encoding="utf-8"))\n    except (OSError, json.JSONDecodeError) as error:\n        raise BenchmarkExecutionError(\n            f"population result invalid: expected={expected}, "\n            "completed=None, failed=None",\n            result,\n        ) from error\n\n    if not isinstance(payload, Mapping):\n        completed = None\n        failed = None\n    else:\n        completed = payload.get("completed")\n        failed = payload.get("failed")\n\n    valid_counts = type(completed) is int and type(failed) is int\n    if not valid_counts or completed != expected or failed != 0:\n        raise BenchmarkExecutionError(\n            f"population result invalid: expected={expected}, "\n            f"completed={completed!r}, failed={failed!r}",\n            result,\n        )\n\n\n'''
+          assert '_validate_population_result(' not in text
+          assert text.count(helper_anchor) == 1
+          text = text.replace(helper_anchor, helper_anchor + helper, 1)
+
+          call_anchor = '            _ensure_command_success(command_result, "population")\n'
+          call = '''            _validate_population_result(\n                population_result_path,\n                artifacts.num_population_prompts,\n                command_result,\n            )\n'''
+          assert text.count(call_anchor) == 1
+          text = text.replace(call_anchor, call_anchor + call, 1)
+          path.write_text(text)
+          PY
+      - name: Verify GREEN focused regression
+        run: python -m pytest benchmarks/cache/tests/test_population_result_validation.py -q
+      - name: Verify full cache benchmark tests
+        run: python -m pytest benchmarks/cache/tests -q
+      - name: Verify cache benchmark compileall
+        run: python -m compileall -q benchmarks/cache
+      - name: Commit implementation and remove scaffolding
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -f .github/workflows/tdd-population-green.yml .github/tdd-population-green-trigger
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add benchmarks/cache/run_suite.py benchmarks/cache/tests/test_population_result_validation.py .github/workflows/tdd-population-green.yml .github/tdd-population-green-trigger
+          git commit -m 'fix: validate cache population results [population-green]'
+          git push origin HEAD:feature/cache-eviction-restore-benchmark
