@@ -9,12 +9,44 @@ import math
 from typing import Any, Literal
 
 Confidence = Literal["high", "low"]
+PreferredPath = Literal["restore", "recompute"]
 
 
 @dataclass(frozen=True, slots=True)
 class CurveEstimate:
     value_ms: float
     confidence: Confidence
+
+
+@dataclass(frozen=True, slots=True)
+class LoadProvenance:
+    source: str
+    external_tokens: int
+    secondary_promoted_tokens: int | None
+    sources: tuple[str, ...]
+    confidence: Confidence
+    lookup_sync_seconds: float | None = None
+    lookup_async_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowDecision:
+    preferred: PreferredPath
+    restore_seed_ms: float
+    restore_estimate_ms: float
+    recompute_estimate_ms: float
+    runtime_scale: float
+    confidence: Confidence
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeObservation:
+    tier_key: str
+    token_bucket: int
+    observed_ms: float
+    seeded_ms: float
+    sample_scale: float
+    runtime_scale: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,12 +131,7 @@ class CostCurve:
 
 
 class OffloadCostModel:
-    """Validated shadow cost-model configuration.
-
-    Decision and online-calibration behavior is added separately after its
-    dedicated tests are introduced. This class already owns the parsed curves
-    so configuration validation has a single source of truth.
-    """
+    """Validated shadow cost model with bounded secondary-tier calibration."""
 
     def __init__(
         self,
@@ -122,6 +149,7 @@ class OffloadCostModel:
         self.ewma_alpha = ewma_alpha
         self.sample_scale_min = sample_scale_min
         self.sample_scale_max = sample_scale_max
+        self._runtime_scales: dict[tuple[str, int], float] = {}
 
     @classmethod
     def from_extra_config(
@@ -199,6 +227,129 @@ class OffloadCostModel:
             sample_scale_min=sample_scale_min,
             sample_scale_max=sample_scale_max,
         )
+
+    def shadow_decide(self, provenance: LoadProvenance) -> ShadowDecision | None:
+        if provenance.external_tokens <= 0:
+            return None
+
+        recompute = self.recompute_curve.estimate(provenance.external_tokens)
+        if provenance.source == "mixed":
+            restore_choice = self._estimate_mixed_restore(provenance)
+            if restore_choice is None:
+                return None
+            restore_seed_ms, restore_estimate_ms, runtime_scale = restore_choice
+            confidence: Confidence = "low"
+        else:
+            profile_key = self._profile_key(provenance.source)
+            if profile_key is None:
+                return None
+            restore_curve = self.tier_restore_curves.get(profile_key)
+            if restore_curve is None:
+                return None
+            restore = restore_curve.estimate(provenance.external_tokens)
+            runtime_scale = self._runtime_scale(
+                provenance.source, profile_key, provenance.external_tokens
+            )
+            restore_seed_ms = restore.value_ms
+            restore_estimate_ms = restore.value_ms * runtime_scale
+            confidence = (
+                "high"
+                if provenance.confidence == "high"
+                and restore.confidence == "high"
+                and recompute.confidence == "high"
+                else "low"
+            )
+
+        preferred: PreferredPath = (
+            "restore"
+            if restore_estimate_ms < recompute.value_ms
+            else "recompute"
+        )
+        return ShadowDecision(
+            preferred=preferred,
+            restore_seed_ms=restore_seed_ms,
+            restore_estimate_ms=restore_estimate_ms,
+            recompute_estimate_ms=recompute.value_ms,
+            runtime_scale=runtime_scale,
+            confidence=confidence,
+        )
+
+    def _estimate_mixed_restore(
+        self, provenance: LoadProvenance
+    ) -> tuple[float, float, float] | None:
+        if not provenance.sources:
+            return None
+
+        candidates: list[tuple[float, float, float]] = []
+        for source in provenance.sources:
+            profile_key = self._profile_key(source)
+            if profile_key is None:
+                return None
+            restore_curve = self.tier_restore_curves.get(profile_key)
+            if restore_curve is None:
+                return None
+            restore = restore_curve.estimate(provenance.external_tokens)
+            runtime_scale = self._runtime_scale(
+                source, profile_key, provenance.external_tokens
+            )
+            candidates.append(
+                (restore.value_ms, restore.value_ms * runtime_scale, runtime_scale)
+            )
+
+        return max(candidates, key=lambda item: item[1])
+
+    def observe_secondary_promotion(
+        self, tier_key: str, tokens: int, observed_ms: float
+    ) -> RuntimeObservation | None:
+        promotion_curve = self.tier_promotion_curves.get(tier_key)
+        if promotion_curve is None:
+            return None
+        if isinstance(observed_ms, bool) or not isinstance(observed_ms, int | float):
+            raise ValueError("observed_ms must be finite and positive")
+        observed_value = float(observed_ms)
+        if not math.isfinite(observed_value) or observed_value <= 0:
+            raise ValueError("observed_ms must be finite and positive")
+
+        seeded_ms = promotion_curve.estimate(tokens).value_ms
+        token_bucket = promotion_curve.bucket_for(tokens)
+        sample_scale = observed_value / seeded_ms
+        sample_scale = min(
+            max(sample_scale, self.sample_scale_min), self.sample_scale_max
+        )
+
+        key = (tier_key, token_bucket)
+        old_scale = self._runtime_scales.get(key, 1.0)
+        runtime_scale = (
+            self.ewma_alpha * sample_scale + (1.0 - self.ewma_alpha) * old_scale
+        )
+        self._runtime_scales[key] = runtime_scale
+
+        return RuntimeObservation(
+            tier_key=tier_key,
+            token_bucket=token_bucket,
+            observed_ms=observed_value,
+            seeded_ms=seeded_ms,
+            sample_scale=sample_scale,
+            runtime_scale=runtime_scale,
+        )
+
+    def _runtime_scale(self, source: str, tier_key: str, tokens: int) -> float:
+        if not source.startswith("secondary:"):
+            return 1.0
+        promotion_curve = self.tier_promotion_curves.get(tier_key)
+        if promotion_curve is None:
+            return 1.0
+        bucket = promotion_curve.bucket_for(tokens)
+        return self._runtime_scales.get((tier_key, bucket), 1.0)
+
+    @staticmethod
+    def _profile_key(source: str) -> str | None:
+        if source == "cpu_primary":
+            return "cpu_primary"
+        if source.startswith("secondary:"):
+            tier_key = source.removeprefix("secondary:")
+            return tier_key or None
+        return None
 
     @staticmethod
     def _parse_positive_number(raw: object, name: str) -> float:
