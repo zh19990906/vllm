@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from benchmarks.cache.scenarios import CacheMode, build_execution_cases
 from benchmarks.cache.workload import build_benchmark_command, generate_workload
 
 
@@ -33,8 +34,111 @@ class ExpandingTokenizer(FakeTokenizer):
         return encoded
 
 
+class ValueExpandingTokenizer(FakeTokenizer):
+    vocab_size = 2
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+        del add_special_tokens
+        source = [int(part) for part in text.split()] if text else []
+        encoded: list[int] = []
+        for token_id in source:
+            encoded.append(token_id)
+            if token_id == 1:
+                encoded.extend((0, 0))
+        return encoded
+
+
 def _rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def _matching_cases(suite_config, workload_kind: str, prefix_ratio: float = 0.0):
+    cases = build_execution_cases(
+        suite_config, suite_config.results.root_dir / "matching-run"
+    )
+    return [
+        case
+        for case in cases
+        if case.workload_kind == workload_kind
+        and case.prefix_ratio == prefix_ratio
+        and case.prompt_tokens == suite_config.workload.prompt_tokens[0]
+        and case.concurrency == suite_config.workload.concurrency[0]
+        and case.request_rate == suite_config.workload.request_rate[0]
+    ]
+
+
+def test_matching_cache_modes_use_identical_warm_exact_workloads(
+    suite_config,
+) -> None:
+    cases = _matching_cases(suite_config, "warm-exact-prefix")
+    artifacts = [
+        generate_workload(case, suite_config, FakeTokenizer()) for case in cases
+    ]
+    measure = [item.measure_path.read_bytes() for item in artifacts]
+    populate = [
+        item.populate_path.read_bytes()
+        for item in artifacts
+        if item.populate_path is not None
+    ]
+    seeds = [
+        json.loads(item.metadata_path.read_text(encoding="utf-8"))["generator_seed"]
+        for item in artifacts
+    ]
+    assert {case.cache_mode for case in cases} == set(CacheMode)
+    assert len({case.case_id for case in cases}) == len(cases)
+    assert len(set(measure)) == 1
+    assert len(set(populate)) == 1
+    assert len(set(seeds)) == 1
+
+
+def test_matching_cache_modes_use_identical_shared_prefix_workloads(
+    suite_config,
+) -> None:
+    cases = _matching_cases(suite_config, "shared-prefix", 0.5)
+    measure = [
+        generate_workload(case, suite_config, FakeTokenizer()).measure_path.read_bytes()
+        for case in cases
+    ]
+    assert {case.cache_mode for case in cases} == set(CacheMode)
+    assert len(set(measure)) == 1
+
+
+def test_execution_controls_do_not_change_workload_content(suite_config) -> None:
+    cases = [
+        case
+        for case in build_execution_cases(
+            suite_config, suite_config.results.root_dir / "controls-run"
+        )
+        if case.cache_mode is CacheMode.NO_CACHE
+        and case.workload_kind == "warm-exact-prefix"
+        and case.prompt_tokens == suite_config.workload.prompt_tokens[0]
+        and case.prefix_ratio == 0.0
+    ]
+    first = next(
+        case
+        for case in cases
+        if case.concurrency == suite_config.workload.concurrency[0]
+        and case.request_rate == suite_config.workload.request_rate[0]
+    )
+    second = next(
+        case
+        for case in cases
+        if case.concurrency == suite_config.workload.concurrency[-1]
+        and case.request_rate == suite_config.workload.request_rate[-1]
+    )
+    first_artifacts = generate_workload(first, suite_config, FakeTokenizer())
+    second_artifacts = generate_workload(second, suite_config, FakeTokenizer())
+    assert first.case_id != second.case_id
+    assert (
+        first_artifacts.measure_path.read_bytes()
+        == second_artifacts.measure_path.read_bytes()
+    )
+    assert first_artifacts.populate_path is not None
+    assert second_artifacts.populate_path is not None
+    assert (
+        first_artifacts.populate_path.read_bytes()
+        == second_artifacts.populate_path.read_bytes()
+    )
 
 
 def test_shared_prefix_workload_is_deterministic(
@@ -126,6 +230,21 @@ def test_expanding_tokenizer_preserves_shared_encoded_prefix(
     )
     encoded = [tokenizer.encode(row["prompt"]) for row in rows]
     assert len({tuple(tokens[:prefix_len]) for tokens in encoded}) == 1
+
+
+def test_value_sensitive_tokenizer_converges_with_bounded_search(
+    suite_config, warm_exact_case
+) -> None:
+    artifacts = generate_workload(
+        warm_exact_case, suite_config, ValueExpandingTokenizer()
+    )
+    metadata = json.loads(artifacts.metadata_path.read_text(encoding="utf-8"))
+    lengths = metadata["files"]["measure"]["observed_token_lengths"]
+    tolerance = suite_config.workload.token_length_tolerance
+    assert all(
+        abs(length - warm_exact_case.prompt_tokens) <= tolerance
+        for length in lengths
+    )
 
 
 def test_benchmark_command_uses_native_custom_dataset(
