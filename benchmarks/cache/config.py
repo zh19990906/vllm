@@ -89,6 +89,7 @@ class WorkloadConfig(StrictModel):
     request_rate: list[RequestRate]
     requests_per_case: PositiveInt
     pressure_fill_requests: NonNegativeInt = 0
+    pressure_fill_tokens: NonNegativeInt = 0
     shared_prefix_ratios: list[Ratio]
     warmup_requests: Annotated[int, Field(ge=0)] = 2
     token_length_tolerance: Annotated[int, Field(ge=0, le=8)] = 2
@@ -114,6 +115,15 @@ class WorkloadConfig(StrictModel):
             else:
                 normalized.append(value)
         return normalized
+
+    @model_validator(mode="after")
+    def validate_pressure_mode(self) -> "WorkloadConfig":
+        if self.pressure_fill_requests > 0 and self.pressure_fill_tokens > 0:
+            raise ValueError(
+                "at most one of pressure_fill_requests and pressure_fill_tokens "
+                "may be non-zero"
+            )
+        return self
 
 
 class ResultsConfig(StrictModel):
