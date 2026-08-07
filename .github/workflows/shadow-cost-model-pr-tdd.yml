@@ -33,9 +33,16 @@ jobs:
           python -m pytest -q \
             --confcutdir="${GITHUB_WORKSPACE}/tests/v1/kv_offload" \
             "${GITHUB_WORKSPACE}/tests/v1/kv_offload/tiering/test_shadow_cost_provenance.py"
-      - name: Compile Tasks 1 and 2 modules
+      - name: Run Task 4 scheduler shadow tests
+        run: |
+          cd /tmp
+          python -m pytest -q \
+            --confcutdir="${GITHUB_WORKSPACE}/tests/v1/kv_offload" \
+            "${GITHUB_WORKSPACE}/tests/v1/kv_offload/tiering/test_shadow_cost_scheduler.py"
+      - name: Compile implemented runtime modules
         run: >-
           python -m compileall -q
           vllm/v1/kv_offload/cost_model.py
           vllm/v1/kv_offload/base.py
           vllm/v1/kv_offload/tiering/spec.py
+          vllm/v1/kv_offload/tiering/manager.py
