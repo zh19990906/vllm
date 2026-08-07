@@ -39,7 +39,7 @@ ceil(pressure_fill_tokens / case.prompt_tokens)
 
 The victim count remains `requests_per_case`.
 
-For the five selected prompt lengths, 65,536 filler tokens yields approximately:
+For the five selected prompt lengths, 65,536 filler tokens yields:
 
 | Prompt tokens | Filler requests | Filler tokens |
 | ---: | ---: | ---: |
@@ -51,18 +51,20 @@ For the five selected prompt lengths, 65,536 filler tokens yields approximately:
 
 This keeps pressure and expected filesystem data volume approximately constant while preserving the same eviction ordering: victims are generated first, then fillers, and measurement replays only the victims.
 
+With the verified Qwen2.5-7B KV layout, each 2 GiB GPU/CPU tier holds about 37.4K prompt tokens. The 65,536-token filler budget alone therefore exceeds either tier capacity at every sweep point and is sufficient to evict the earliest victims from both GPU and CPU under LRU.
+
 ## Configuration Semantics
 
 `pressure_fill_requests` remains supported for compatibility with existing pressure experiments.
 
 `pressure_fill_tokens` is optional and defaults to `0`.
 
-Exactly one pressure mechanism may be active:
+At most one pressure mechanism may be non-zero:
 
 - `pressure_fill_requests > 0`, or
 - `pressure_fill_tokens > 0`.
 
-A configuration with both non-zero is invalid and must fail strict validation.
+A configuration with both non-zero is invalid and must fail strict validation. A configuration with both zero remains valid and does not add `eviction-restore` cases.
 
 When `pressure_fill_tokens > 0`, an `eviction-restore` scenario is generated even when `pressure_fill_requests == 0`.
 
@@ -174,12 +176,13 @@ Add tests for:
 
 1. strict parsing of `pressure_fill_tokens`
 2. rejection when both pressure fields are non-zero
-3. scenario generation when token pressure is enabled
-4. exact derived filler counts for the five sweep lengths
-5. victim-first population order and victim measurement replay
-6. metadata recording configured token budget and derived filler count
-7. byte-identical workloads across cache modes for the same prompt length
-8. existing `pressure_fill_requests` behavior remaining unchanged
+3. both pressure fields at zero remaining valid
+4. scenario generation when token pressure is enabled
+5. exact derived filler counts for the five sweep lengths
+6. victim-first population order and victim measurement replay
+7. metadata recording configured token budget and derived filler count
+8. byte-identical workloads across cache modes for the same prompt length
+9. existing `pressure_fill_requests` behavior remaining unchanged
 
 Run the complete `benchmarks/cache/tests` suite and `python -m compileall -q benchmarks/cache` before hardware execution.
 
