@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PositiveInt = Annotated[int, Field(gt=0)]
+NonNegativeInt = Annotated[int, Field(ge=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
 Ratio = Annotated[float, Field(ge=0.0, le=1.0)]
 RequestRate = Literal["inf"] | PositiveFloat
@@ -87,6 +88,7 @@ class WorkloadConfig(StrictModel):
     concurrency: list[PositiveInt]
     request_rate: list[RequestRate]
     requests_per_case: PositiveInt
+    pressure_fill_requests: NonNegativeInt = 0
     shared_prefix_ratios: list[Ratio]
     warmup_requests: Annotated[int, Field(ge=0)] = 2
     token_length_tolerance: Annotated[int, Field(ge=0, le=8)] = 2
