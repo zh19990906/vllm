@@ -72,7 +72,7 @@ def get_load_provenance(
 
 The default implementation is a no-op returning `None`. `TieringOffloadingManager` overrides it because it is the component that actually knows whether a key was found in CPU primary or in a specific secondary tier.
 
-The scheduler consumes this summary only after `_lookup()` has converged on the final number of external matched tokens.
+The scheduler consumes this summary only after `_lookup()` has converged on the final number of external matched tokens. The query itself must be idempotent for a given request state: reading provenance must not destructively remove source markers, because scheduler retries, preemption, or repeated inspection must not silently reclassify a previously promoted prefix. Provenance is cleared only by the defined request/reset lifecycle or when a new request state replaces it.
 
 ### 3. Tiering Provenance State
 
@@ -99,19 +99,21 @@ primary HIT with no prior promotion marker
     -> source is cpu_primary
 
 secondary HIT + successful promotion initiation
-    -> mark key source as secondary:<tier_type>
+    -> mark key source as secondary:<tier_key>
 
 promotion completes
     -> keep the original secondary source marker
 
 scheduler obtains final matched prefix
-    -> summarize/consume provenance for that prefix
+    -> summarize provenance for that prefix without destructive consumption
 
 request finish/reset
     -> clear provenance
 ```
 
 A failed promotion must not create a secondary-hit provenance record for tokens that cannot actually be restored.
+
+Each secondary manager must expose or be mapped to a stable, bounded `tier_key` used by both provenance and `profile.tiers`. The cost model must not depend on human-readable log text or object identity. For the current storage tier the configured key may be `filesystem`; future tier implementations use their own stable keys.
 
 ### 4. Scheduler Shadow Hook
 
@@ -148,7 +150,7 @@ Minimum fields:
 Source classification for v1:
 
 - all selected tokens are direct CPU-primary hits -> `cpu_primary`
-- all selected tokens originated from one secondary tier -> `secondary:<tier_type>`
+- all selected tokens originated from one secondary tier -> `secondary:<tier_key>`
 - CPU and secondary are mixed -> `mixed`
 - multiple secondary tiers are mixed -> `mixed`
 
@@ -272,7 +274,7 @@ sample_scale_max = 4.0
 
 The clamp prevents one transient storage or scheduling stall from destabilizing the model.
 
-Token buckets should be derived deterministically from the configured promotion curve sample points so the profile and runtime correction use the same scale boundaries.
+Token buckets should be derived deterministically from the configured promotion curve sample points so the profile and runtime correction use the same scale boundaries. Secondary promotion observations are assigned using the actual promoted-token count represented by the completed promotion job; they are not inferred from total prompt length.
 
 ## Shadow Decision Record
 
@@ -344,11 +346,13 @@ Cover:
 - direct CPU-primary hit;
 - secondary hit marks source;
 - promoted key later appearing as primary HIT still retains secondary source;
+- repeated provenance queries are idempotent;
 - failed promotion is not misclassified as a successful secondary restore;
 - request finish cleans provenance;
 - cache reset cleans provenance;
 - mixed CPU/secondary prefix is classified `mixed` with low confidence;
-- multiple secondary sources are classified `mixed` with low confidence.
+- multiple secondary sources are classified `mixed` with low confidence;
+- secondary `tier_key` maps deterministically to the configured profile tier.
 
 ### Scheduler Invariance Tests
 
@@ -369,6 +373,7 @@ Cover:
 - `mode: off` -> off;
 - valid shadow profile parses;
 - invalid alpha/ranges/curve points fail startup validation;
+- unknown provenance tier key cannot silently select another tier profile;
 - benchmark data are never defaulted implicitly.
 
 ## Hardware Validation
@@ -434,11 +439,12 @@ The shadow-mode implementation is complete when all of the following are true:
 
 1. Shadow mode is opt-in and disabled by default.
 2. Existing `LookupResult` semantics are unchanged.
-3. Tiering provenance survives secondary-to-primary promotion correctly.
-4. Cost curves use configured benchmark seed data with piecewise-linear interpolation.
-5. Secondary-tier runtime correction uses bounded EWMA.
-6. Recompute and CPU-primary curves are not falsely presented as online-learned in v1.
-7. Scheduler execution outputs are invariant between off and shadow modes.
-8. Prometheus labels remain low cardinality.
-9. Unit tests cover cost logic, provenance lifecycle, configuration, and scheduler invariance.
-10. Hardware validation produces the expected CPU-primary and filesystem shadow decisions while the actual request path remains unchanged.
+3. Tiering provenance survives secondary-to-primary promotion correctly and provenance reads are idempotent.
+4. Secondary provenance uses a stable tier key that maps explicitly to the configured profile.
+5. Cost curves use configured benchmark seed data with piecewise-linear interpolation.
+6. Secondary-tier runtime correction uses bounded EWMA.
+7. Recompute and CPU-primary curves are not falsely presented as online-learned in v1.
+8. Scheduler execution outputs are invariant between off and shadow modes.
+9. Prometheus labels remain low cardinality.
+10. Unit tests cover cost logic, provenance lifecycle, configuration, and scheduler invariance.
+11. Hardware validation produces the expected CPU-primary and filesystem shadow decisions while the actual request path remains unchanged.
