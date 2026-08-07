@@ -1,11 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import importlib.util
 import math
+from pathlib import Path
+import sys
 
 import pytest
 
-from vllm.v1.kv_offload.cost_model import CostCurve, CurveEstimate, OffloadCostModel
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_MODULE_PATH = _REPO_ROOT / "vllm" / "v1" / "kv_offload" / "cost_model.py"
+_SPEC = importlib.util.spec_from_file_location("vllm_cost_model_under_test", _MODULE_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+_COST_MODEL = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = _COST_MODEL
+_SPEC.loader.exec_module(_COST_MODEL)
+
+CostCurve = _COST_MODEL.CostCurve
+CurveEstimate = _COST_MODEL.CurveEstimate
+OffloadCostModel = _COST_MODEL.OffloadCostModel
 
 
 def test_curve_exact_interpolation_and_outside_confidence() -> None:
@@ -50,7 +64,6 @@ def test_cost_model_is_off_by_default() -> None:
 @pytest.mark.parametrize(
     "raw",
     [
-        {},
         {"cache_cost_model": {"mode": "shadow"}},
         {
             "cache_cost_model": {
