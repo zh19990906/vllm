@@ -129,8 +129,9 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
 
         for tier_config in secondary_tier_configs:
             assert isinstance(tier_config, dict)
-            tier_cls = SecondaryTierFactory.get_tier_class(tier_config)
-            metrics.update(tier_cls.build_metric_definitions(tier_config))
+            runtime_tier_config = cls._runtime_tier_config(tier_config)
+            tier_cls = SecondaryTierFactory.get_tier_class(runtime_tier_config)
+            metrics.update(tier_cls.build_metric_definitions(runtime_tier_config))
         return metrics
 
     @staticmethod
@@ -160,6 +161,12 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
                 "when cache_cost_model is enabled"
             )
         return tuple(tier_keys)
+
+    @staticmethod
+    def _runtime_tier_config(tier_config: dict[str, Any]) -> dict[str, Any]:
+        runtime_config = tier_config.copy()
+        runtime_config.pop("cost_model_tier_key", None)
+        return runtime_config
 
     def __init__(self, config: OffloadingConfig):
         super().__init__(config)
@@ -234,8 +241,9 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
             secondary_tiers = []
             for i, tier_config in enumerate(self.secondary_tier_configs):
                 try:
+                    runtime_tier_config = self._runtime_tier_config(tier_config)
                     tier = SecondaryTierFactory.create_secondary_tier(
-                        tier_config, primary_kv_view, self
+                        runtime_tier_config, primary_kv_view, self
                     )
                     secondary_tiers.append(tier)
                     logger.info(

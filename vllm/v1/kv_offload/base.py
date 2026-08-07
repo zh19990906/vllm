@@ -372,7 +372,7 @@ class BlockIDsLoadStoreSpec(LoadStoreSpec, ABC):
 
 class GPULoadStoreSpec(BlockIDsLoadStoreSpec):
     """
-    Spec for loading/storing KV blocks from given block numbers.
+    Spec for loading/storing a KV block to GPU memory.
 
     If there are multiple KV groups, the blocks are expected to be
     ordered by the group index.
@@ -446,11 +446,11 @@ class CanonicalKVCaches:
           i.e. how each KV cache group maps to the tensors.
     """
 
-    # Ordered list of unique block tensors,
-    # each with shape (num_blocks, ...).
+    # Ordered list of unique block tensors, each with shape
+    # (num_blocks, ...).
     tensors: list[CanonicalKVCacheTensor]
-    # Per-KV-cache-group list of data references of the tensors.
-    # i.e. how each KV cache group maps to the tensors.
+    # Per-KV-cache-group list of data references that map each layer
+    # in the group to the appropriate entry in the tensors list.
     group_data_refs: list[list[CanonicalKVCacheRef]]
 
 

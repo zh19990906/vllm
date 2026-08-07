@@ -49,7 +49,11 @@ from vllm.v1.kv_offload.base import (
     ScheduleEndContext,
     make_offload_key,
 )
-from vllm.v1.kv_offload.cost_model import LoadProvenance, OffloadCostModel, ShadowDecision
+from vllm.v1.kv_offload.cost_model import (
+    LoadProvenance,
+    OffloadCostModel,
+    ShadowDecision,
+)
 from vllm.v1.outputs import KVConnectorOutput
 from vllm.v1.request import Request
 
