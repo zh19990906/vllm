@@ -54,9 +54,21 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _workload_identity(case: ExecutionCase) -> dict[str, object]:
+    return {
+        "workload_kind": case.workload_kind,
+        "prompt_tokens": case.prompt_tokens,
+        "prefix_ratio": case.prefix_ratio,
+        "repetition": case.repetition,
+    }
+
+
 def _generator_seed(config: SuiteConfig, case: ExecutionCase) -> int:
+    identity = json.dumps(
+        _workload_identity(case), sort_keys=True, separators=(",", ":")
+    )
     digest = hashlib.sha256(
-        f"{config.workload.seed}:{case.case_id}".encode("utf-8")
+        f"{config.workload.seed}:{identity}".encode("utf-8")
     ).digest()
     return int.from_bytes(digest, byteorder="big")
 
