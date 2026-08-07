@@ -34,6 +34,20 @@ class ExpandingTokenizer(FakeTokenizer):
         return encoded
 
 
+class ValueExpandingTokenizer(FakeTokenizer):
+    vocab_size = 2
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+        del add_special_tokens
+        source = [int(part) for part in text.split()] if text else []
+        encoded: list[int] = []
+        for token_id in source:
+            encoded.append(token_id)
+            if token_id == 1:
+                encoded.extend((0, 0))
+        return encoded
+
+
 def _rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
@@ -213,6 +227,21 @@ def test_expanding_tokenizer_preserves_shared_encoded_prefix(
     )
     encoded = [tokenizer.encode(row["prompt"]) for row in rows]
     assert len({tuple(tokens[:prefix_len]) for tokens in encoded}) == 1
+
+
+def test_value_sensitive_tokenizer_converges_with_bounded_search(
+    suite_config, warm_exact_case
+) -> None:
+    artifacts = generate_workload(
+        warm_exact_case, suite_config, ValueExpandingTokenizer()
+    )
+    metadata = json.loads(artifacts.metadata_path.read_text(encoding="utf-8"))
+    lengths = metadata["files"]["measure"]["observed_token_lengths"]
+    tolerance = suite_config.workload.token_length_tolerance
+    assert all(
+        abs(length - warm_exact_case.prompt_tokens) <= tolerance
+        for length in lengths
+    )
 
 
 def test_benchmark_command_uses_native_custom_dataset(
