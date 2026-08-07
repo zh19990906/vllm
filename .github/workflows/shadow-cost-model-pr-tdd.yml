@@ -5,11 +5,75 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
-  focused:
+  patch-manager-metrics:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feature/kv-offload-shadow-cost-model
+          fetch-depth: 0
+      - name: Detect one-shot patch trigger
+        id: trigger
+        run: |
+          if test -f .github/shadow-manager-metrics-trigger; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply exact manager metric patch
+        if: steps.trigger.outputs.enabled == 'true'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('vllm/v1/kv_offload/tiering/manager.py')
+          text = path.read_text()
+
+          old_import = '''from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (\n    OffloadingConnectorStats,\n)'''
+          new_import = '''from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (\n    OffloadingConnectorStats,\n    _ConnectorMetricName,\n)'''
+          if old_import in text:
+              if text.count(old_import) != 1:
+                  raise SystemExit('manager metrics import anchor matched more than once')
+              text = text.replace(old_import, new_import)
+          elif text.count(new_import) != 1:
+              raise SystemExit('manager metrics import is neither old nor patched form')
+
+          old_observation = '''        if promoted_tokens > 0:\n            self._cost_model.observe_secondary_promotion(\n                tier_key,\n                promoted_tokens,\n                elapsed_seconds * 1000.0,\n            )'''
+          new_observation = '''        if promoted_tokens > 0:\n            observation = self._cost_model.observe_secondary_promotion(\n                tier_key,\n                promoted_tokens,\n                elapsed_seconds * 1000.0,\n            )\n            if observation is not None:\n                source = f"secondary:{tier_key}"\n                self._stats.increase_counter(\n                    _ConnectorMetricName.COST_OBSERVATIONS,\n                    labelvalues=(source,),\n                )\n                self._stats.set_gauge(\n                    _ConnectorMetricName.COST_RUNTIME_SCALE,\n                    observation.runtime_scale,\n                    labelvalues=(source, str(observation.token_bucket)),\n                )'''
+          if old_observation in text:
+              if text.count(old_observation) != 1:
+                  raise SystemExit('promotion observation anchor matched more than once')
+              text = text.replace(old_observation, new_observation)
+          elif text.count(new_observation) != 1:
+              raise SystemExit('promotion observation is neither old nor patched form')
+
+          path.write_text(text)
+          PY
+      - name: Commit one-shot patch
+        if: steps.trigger.outputs.enabled == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add vllm/v1/kv_offload/tiering/manager.py
+          if git diff --cached --quiet; then
+            echo 'manager already patched'
+            exit 0
+          fi
+          git diff --cached --check
+          git commit -m 'feat: emit KV promotion calibration metrics'
+          git push origin HEAD:feature/kv-offload-shadow-cost-model
+
+  focused:
+    needs: patch-manager-metrics
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/kv-offload-shadow-cost-model
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -46,3 +110,5 @@ jobs:
           vllm/v1/kv_offload/base.py
           vllm/v1/kv_offload/tiering/spec.py
           vllm/v1/kv_offload/tiering/manager.py
+          vllm/distributed/kv_transfer/kv_connector/v1/offloading/metrics.py
+          vllm/distributed/kv_transfer/kv_connector/v1/offloading/scheduler.py
