@@ -37,6 +37,9 @@ def _install_import_stubs() -> tuple[ModuleType, ModuleType]:
     numpy.ndarray = object
     numpy.int64 = int
     numpy.array = lambda values, dtype=None: list(values)
+    numpy.isscalar = lambda value: isinstance(
+        value, (bool, int, float, complex, str, bytes)
+    )
     sys.modules["numpy"] = numpy
 
     torch = ModuleType("torch")
@@ -66,7 +69,7 @@ def _install_import_stubs() -> tuple[ModuleType, ModuleType]:
     config_module.OffloadingConfig = object
     sys.modules["vllm.v1.kv_offload.config"] = config_module
 
-    cost_model = _load(
+    _load(
         "vllm.v1.kv_offload.cost_model",
         _REPO_ROOT / "vllm" / "v1" / "kv_offload" / "cost_model.py",
     )
