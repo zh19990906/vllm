@@ -2,9 +2,8 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import importlib.util
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 _HELPER_PATH = Path(__file__).with_name("test_shadow_cost_provenance.py")
 _SPEC = importlib.util.spec_from_file_location(

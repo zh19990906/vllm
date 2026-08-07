@@ -3,15 +3,16 @@
 
 import importlib.util
 import math
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _MODULE_PATH = _REPO_ROOT / "vllm" / "v1" / "kv_offload" / "cost_model.py"
-_SPEC = importlib.util.spec_from_file_location("vllm_cost_model_under_test", _MODULE_PATH)
+_SPEC = importlib.util.spec_from_file_location(
+    "vllm_cost_model_under_test", _MODULE_PATH
+)
 assert _SPEC is not None and _SPEC.loader is not None
 _COST_MODEL = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _COST_MODEL
@@ -300,9 +301,7 @@ def test_single_point_cpu_extrapolation_is_low_confidence() -> None:
 
 def test_ewma_updates_matching_tier_bucket() -> None:
     model = _profile_model()
-    observation = model.observe_secondary_promotion(
-        "filesystem", 1024, 162.916
-    )
+    observation = model.observe_secondary_promotion("filesystem", 1024, 162.916)
 
     assert observation is not None
     assert observation.tier_key == "filesystem"

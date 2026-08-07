@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from dataclasses import dataclass
 import importlib.util
-from pathlib import Path
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
-
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -185,7 +184,7 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, type, type]:
     )
     sys.modules[tiering_base.__name__] = tiering_base
 
-    manager = _load(
+    _load(
         "vllm.v1.kv_offload.tiering.manager",
         _REPO_ROOT / "vllm" / "v1" / "kv_offload" / "tiering" / "manager.py",
     )

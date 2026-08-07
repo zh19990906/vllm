@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from dataclasses import dataclass, field
 import importlib.util
-from pathlib import Path
 import sys
+from dataclasses import dataclass, field
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
-
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -87,7 +86,7 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, ModuleType]:
         "vllm.v1.kv_offload.cost_model",
         _REPO_ROOT / "vllm" / "v1" / "kv_offload" / "cost_model.py",
     )
-    base = _load(
+    _load(
         "vllm.v1.kv_offload.base",
         _REPO_ROOT / "vllm" / "v1" / "kv_offload" / "base.py",
     )
@@ -116,7 +115,9 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, ModuleType]:
 
     offload_factory = ModuleType("vllm.v1.kv_offload.factory")
     offload_factory.OffloadingSpecFactory = type(
-        "OffloadingSpecFactory", (), {"get_spec_cls": staticmethod(lambda config: object)}
+        "OffloadingSpecFactory",
+        (),
+        {"get_spec_cls": staticmethod(lambda config: object)},
     )
     sys.modules[offload_factory.__name__] = offload_factory
 
@@ -153,7 +154,9 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, ModuleType]:
     common.TransferJob = object
     sys.modules[common.__name__] = common
 
-    events = ModuleType("vllm.distributed.kv_transfer.kv_connector.v1.offloading.events")
+    events = ModuleType(
+        "vllm.distributed.kv_transfer.kv_connector.v1.offloading.events"
+    )
     events.OffloadingEventGroupSpec = object
 
     class _EventsTracker:
@@ -306,9 +309,7 @@ def test_shadow_metric_definitions_have_bounded_labels() -> None:
         "source",
         "token_bucket",
     )
-    assert definitions[_ConnectorMetricName.COST_OBSERVATIONS].labelnames == (
-        "source",
-    )
+    assert definitions[_ConnectorMetricName.COST_OBSERVATIONS].labelnames == ("source",)
 
 
 def test_shadow_recompute_prediction_keeps_original_scheduler_return() -> None:
@@ -334,7 +335,7 @@ def test_shadow_recompute_prediction_keeps_original_scheduler_return() -> None:
     assert manager.provenance_calls == 1
     reduced = _reduced(scheduler._connector_stats)
     decision_key = (
-        f'{_ConnectorMetricName.COST_SHADOW_DECISIONS}:'
+        f"{_ConnectorMetricName.COST_SHADOW_DECISIONS}:"
         "('secondary:filesystem', 'recompute', 'high')"
     )
     assert reduced[decision_key] == 1

@@ -2,10 +2,10 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """Pure cost-model primitives for shadow KV offload decisions."""
 
+import math
 from bisect import bisect_left
 from collections.abc import Mapping
 from dataclasses import dataclass
-import math
 from typing import Any, Literal
 
 Confidence = Literal["high", "low"]
@@ -205,9 +205,7 @@ class OffloadCostModel:
 
             restore_raw = raw_tier_profile.get("restore_ms")
             if not isinstance(restore_raw, Mapping) or not restore_raw:
-                raise ValueError(
-                    f"tier profile '{raw_tier_key}' requires restore_ms"
-                )
+                raise ValueError(f"tier profile '{raw_tier_key}' requires restore_ms")
             restore_curves[raw_tier_key] = CostCurve.from_mapping(restore_raw)
 
             promotion_raw = raw_tier_profile.get("promotion_ms")
@@ -261,9 +259,7 @@ class OffloadCostModel:
             )
 
         preferred: PreferredPath = (
-            "restore"
-            if restore_estimate_ms < recompute.value_ms
-            else "recompute"
+            "restore" if restore_estimate_ms < recompute.value_ms else "recompute"
         )
         return ShadowDecision(
             preferred=preferred,

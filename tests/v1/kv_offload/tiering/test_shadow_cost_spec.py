@@ -2,12 +2,11 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import importlib.util
-from pathlib import Path
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
-
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -188,9 +187,9 @@ TieringOffloadingSpec = _TIERING_SPEC.TieringOffloadingSpec
 
 
 def test_base_shadow_interfaces_are_noop() -> None:
-    assert OffloadingManager.get_load_provenance(
-        object(), (), ReqContext("r"), 64
-    ) is None
+    assert (
+        OffloadingManager.get_load_provenance(object(), (), ReqContext("r"), 64) is None
+    )
     assert OffloadingSpec.get_cost_model(object()) is None
 
 

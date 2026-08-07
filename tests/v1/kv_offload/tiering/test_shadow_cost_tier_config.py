@@ -2,12 +2,13 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import importlib.util
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 _HELPER_PATH = Path(__file__).with_name("test_shadow_cost_spec.py")
-_SPEC = importlib.util.spec_from_file_location("shadow_cost_spec_test_helpers", _HELPER_PATH)
+_SPEC = importlib.util.spec_from_file_location(
+    "shadow_cost_spec_test_helpers", _HELPER_PATH
+)
 assert _SPEC is not None and _SPEC.loader is not None
 _HELPERS = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _HELPERS

@@ -383,8 +383,9 @@ class TieringOffloadingManager(OffloadingManager):
             group_idx = get_offload_group_idx(key)
             if group_idx >= len(self._tokens_per_chunk_by_group):
                 return 0
-            per_group[group_idx] = per_group.get(group_idx, 0) + (
-                self._tokens_per_chunk_by_group[group_idx]
+            per_group[group_idx] = (
+                per_group.get(group_idx, 0)
+                + (self._tokens_per_chunk_by_group[group_idx])
             )
         return max(per_group.values(), default=0)
 
@@ -457,10 +458,7 @@ class TieringOffloadingManager(OffloadingManager):
                 return LookupResult.MISS if not promoted else LookupResult.RETRY
             if result is LookupResult.RETRY:
                 any_retry = True
-                if (
-                    req_state is not None
-                    and req_state.promotion_started_at is not None
-                ):
+                if req_state is not None and req_state.promotion_started_at is not None:
                     tier_key = self._secondary_tier_keys[tier]
                     req_state.promotion_started_at.setdefault(tier_key, lookup_start)
 
@@ -980,7 +978,9 @@ class TieringOffloadingManager(OffloadingManager):
             return None
 
         selected_keys = tuple(keys)
-        if not selected_keys or any(key not in state.key_sources for key in selected_keys):
+        if not selected_keys or any(
+            key not in state.key_sources for key in selected_keys
+        ):
             return None
         sources = tuple(sorted({state.key_sources[key] for key in selected_keys}))
         if not sources:
@@ -1003,7 +1003,9 @@ class TieringOffloadingManager(OffloadingManager):
             secondary_promoted_tokens = None
             if state.promotion_elapsed_seconds:
                 elapsed = [
-                    state.promotion_elapsed_seconds[tier_source.removeprefix("secondary:")]
+                    state.promotion_elapsed_seconds[
+                        tier_source.removeprefix("secondary:")
+                    ]
                     for tier_source in sources
                     if tier_source.startswith("secondary:")
                     and tier_source.removeprefix("secondary:")

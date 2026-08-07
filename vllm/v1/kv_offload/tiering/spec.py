@@ -145,9 +145,7 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
 
         tier_keys: list[str] = []
         for tier_config in secondary_tier_configs:
-            tier_key = tier_config.get(
-                "cost_model_tier_key", tier_config.get("type")
-            )
+            tier_key = tier_config.get("cost_model_tier_key", tier_config.get("type"))
             if not isinstance(tier_key, str) or not tier_key:
                 raise ValueError(
                     "cost_model_tier_key must be a non-empty string when "
