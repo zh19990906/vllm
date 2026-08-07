@@ -5,11 +5,49 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
-  focused:
+  patch-deferred-timing:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feature/kv-offload-shadow-cost-model
+          fetch-depth: 0
+      - name: Apply exact deferred timing patch
+        run: |
+          test -f .github/shadow-promotion-timing-trigger
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('vllm/v1/kv_offload/tiering/manager.py')
+          text = path.read_text()
+          old = '''            if result is LookupResult.RETRY:\n                any_retry = True\n'''
+          new = '''            if result is LookupResult.RETRY:\n                any_retry = True\n                if (\n                    req_state is not None\n                    and req_state.promotion_started_at is not None\n                ):\n                    tier_key = self._secondary_tier_keys[tier]\n                    req_state.promotion_started_at.setdefault(tier_key, lookup_start)\n'''
+          if text.count(old) != 1:
+              raise SystemExit(
+                  f'deferred timing anchor expected once, found {text.count(old)}'
+              )
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Commit deferred timing patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add vllm/v1/kv_offload/tiering/manager.py
+          git diff --cached --check
+          git commit -m 'fix: time secondary cost from first deferred lookup'
+          git push origin HEAD:feature/kv-offload-shadow-cost-model
+
+  focused:
+    needs: patch-deferred-timing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/kv-offload-shadow-cost-model
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
