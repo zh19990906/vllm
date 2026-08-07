@@ -1,21 +1,20 @@
 name: tdd-population-result-red
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - feature/cache-eviction-restore-benchmark
 
 permissions:
   contents: write
 
 jobs:
   red:
-    if: github.head_ref == 'feature/cache-eviction-restore-benchmark'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
@@ -30,6 +29,9 @@ jobs:
 
           path = Path('benchmarks/cache/tests/test_run_suite.py')
           text = path.read_text()
+          function_name = 'def test_population_result_failure_stops_before_measurement('
+          if function_name in text:
+              raise SystemExit(0)
           marker = '\ndef test_restart_persistence_restarts_before_measured_run(\n'
           assert marker in text
           test = r'''
@@ -111,8 +113,12 @@ def test_population_result_failure_stops_before_measurement(
       - name: Commit RED test
         shell: bash
         run: |
+          if git diff --quiet -- benchmarks/cache/tests/test_run_suite.py; then
+            echo 'Regression test already committed.'
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add benchmarks/cache/tests/test_run_suite.py
           git commit -m 'test: reject partial cache population results'
-          git push origin HEAD:${GITHUB_HEAD_REF}
+          git push origin HEAD:${GITHUB_REF_NAME}
