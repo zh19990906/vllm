@@ -44,6 +44,7 @@ from vllm.v1.kv_offload.base import (
     OffloadingMetricMetadata,
 )
 from vllm.v1.kv_offload.config import OffloadingConfig
+from vllm.v1.kv_offload.cost_model import OffloadCostModel
 from vllm.v1.kv_offload.cpu.gpu_worker import CPUOffloadingWorker
 from vllm.v1.kv_offload.cpu.shared_offload_region import SharedOffloadRegion
 from vllm.v1.kv_offload.cpu.spec import CPUOffloadingSpec
@@ -132,6 +133,34 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
             metrics.update(tier_cls.build_metric_definitions(tier_config))
         return metrics
 
+    @staticmethod
+    def _resolve_cost_model_tier_keys(
+        secondary_tier_configs: list[dict[str, Any]], *, enabled: bool
+    ) -> tuple[str, ...]:
+        if not enabled:
+            return tuple(
+                tier_config.get("type") for tier_config in secondary_tier_configs
+            )  # type: ignore[return-value]
+
+        tier_keys: list[str] = []
+        for tier_config in secondary_tier_configs:
+            tier_key = tier_config.get(
+                "cost_model_tier_key", tier_config.get("type")
+            )
+            if not isinstance(tier_key, str) or not tier_key:
+                raise ValueError(
+                    "cost_model_tier_key must be a non-empty string when "
+                    "cache_cost_model is enabled"
+                )
+            tier_keys.append(tier_key)
+
+        if len(set(tier_keys)) != len(tier_keys):
+            raise ValueError(
+                "secondary tiers must have unique cost_model_tier_key values "
+                "when cache_cost_model is enabled"
+            )
+        return tuple(tier_keys)
+
     def __init__(self, config: OffloadingConfig):
         super().__init__(config)
         # Redeclare for mypy: parent sets this but `--follow-imports skip` hides it
@@ -150,6 +179,12 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
         if not isinstance(self.secondary_tier_configs, list):
             raise ValueError("secondary_tiers must be a list of tier configurations")
 
+        self._cost_model = OffloadCostModel.from_extra_config(self.extra_config)
+        self._cost_model_tier_keys = self._resolve_cost_model_tier_keys(
+            self.secondary_tier_configs,
+            enabled=self._cost_model is not None,
+        )
+
         # Scheduler-side mmap (rank=None); kept for cleanup
         self._scheduler_mmap: SharedOffloadRegion | None = None
 
@@ -157,6 +192,10 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
         # the Ray and multiprocessing paths), so it names a per-replica offload
         # region.
         self._engine_id = config.engine_id
+
+    @override
+    def get_cost_model(self) -> OffloadCostModel | None:
+        return self._cost_model
 
     @override
     def get_manager(self) -> OffloadingManager:
@@ -218,6 +257,12 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
             tiering_manager = TieringOffloadingManager(
                 primary_tier=primary_tier,
                 secondary_tiers=secondary_tiers,
+                cost_model=self._cost_model,
+                secondary_tier_keys=self._cost_model_tier_keys,
+                tokens_per_chunk_by_group=tuple(
+                    tokens_per_block * self.blocks_per_chunk
+                    for tokens_per_block in self.tokens_per_block
+                ),
             )
             if int(self.extra_config.get("store_threshold", 0)) >= 2:
                 raise ValueError(
