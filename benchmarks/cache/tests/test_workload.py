@@ -129,7 +129,10 @@ def test_execution_controls_do_not_change_workload_content(suite_config) -> None
     first_artifacts = generate_workload(first, suite_config, FakeTokenizer())
     second_artifacts = generate_workload(second, suite_config, FakeTokenizer())
     assert first.case_id != second.case_id
-    assert first_artifacts.measure_path.read_bytes() == second_artifacts.measure_path.read_bytes()
+    assert (
+        first_artifacts.measure_path.read_bytes()
+        == second_artifacts.measure_path.read_bytes()
+    )
     assert first_artifacts.populate_path is not None
     assert second_artifacts.populate_path is not None
     assert (
