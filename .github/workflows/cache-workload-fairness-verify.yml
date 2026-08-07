@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
       - name: Install test dependencies
         run: python -m pip install -U pytest pydantic PyYAML
-      - name: Run fairness RED tests
+      - name: Run convergence RED test
         run: >-
           python -m pytest -q benchmarks/cache/tests/test_workload.py
-          -k 'matching_cache_modes or execution_controls'
+          -k 'value_sensitive_tokenizer'
