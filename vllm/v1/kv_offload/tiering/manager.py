@@ -457,6 +457,12 @@ class TieringOffloadingManager(OffloadingManager):
                 return LookupResult.MISS if not promoted else LookupResult.RETRY
             if result is LookupResult.RETRY:
                 any_retry = True
+                if (
+                    req_state is not None
+                    and req_state.promotion_started_at is not None
+                ):
+                    tier_key = self._secondary_tier_keys[tier]
+                    req_state.promotion_started_at.setdefault(tier_key, lookup_start)
 
         self._accumulate_lookup_sync_delay(req_state, lookup_start)
         if any_retry:
