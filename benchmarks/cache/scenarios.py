@@ -14,6 +14,7 @@ RequestRate = str | float
 WorkloadKind = Literal[
     "cold-unique",
     "warm-exact-prefix",
+    "eviction-restore",
     "shared-prefix",
     "mixed-prefix",
     "restart-persistence",
@@ -115,6 +116,8 @@ def build_execution_cases(config: SuiteConfig, run_dir: Path) -> list[ExecutionC
             ("shared-prefix", shared_ratios),
             ("mixed-prefix", [0.0]),
         ]
+        if config.workload.pressure_fill_requests > 0:
+            workload_ratios.append(("eviction-restore", [0.0]))
         if cache_mode is CacheMode.TIERED_FS:
             workload_ratios.append(("restart-persistence", [0.0]))
 
