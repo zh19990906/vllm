@@ -48,8 +48,8 @@ jobs:
           base = Path('vllm/v1/kv_offload/base.py')
           replace_once(
               base,
-              '    Spec for loading/storing KV blocks from given block numbers.\n',
-              '    Spec for loading/storing a KV block to GPU memory.\n',
+              '''class GPULoadStoreSpec(BlockIDsLoadStoreSpec):\n    """\n    Spec for loading/storing KV blocks from given block numbers.\n''',
+              '''class GPULoadStoreSpec(BlockIDsLoadStoreSpec):\n    """\n    Spec for loading/storing a KV block to GPU memory.\n''',
           )
           replace_once(
               base,
