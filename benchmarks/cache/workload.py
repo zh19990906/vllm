@@ -212,6 +212,28 @@ def _generate_unique_rows(
     return rows, lengths
 
 
+def _generate_eviction_restore_rows(
+    case: ExecutionCase,
+    config: SuiteConfig,
+    tokenizer: TokenizerProtocol,
+    rng: random.Random,
+    allowed_tokens: tuple[int, ...],
+) -> tuple[
+    list[dict[str, object]],
+    list[int],
+    list[dict[str, object]],
+    list[int],
+]:
+    victim_count = config.workload.requests_per_case
+    population_count = victim_count + config.workload.pressure_fill_requests
+    population, population_lengths = _generate_unique_rows(
+        population_count, case, config, tokenizer, rng, allowed_tokens
+    )
+    measurement = list(population[:victim_count])
+    measurement_lengths = list(population_lengths[:victim_count])
+    return measurement, measurement_lengths, population, population_lengths
+
+
 def _generate_shared_rows(
     count: int,
     ratio: float,
@@ -346,6 +368,15 @@ def generate_workload(
         )
         populate_rows = list(measure_rows)
         populate_lengths = list(measure_lengths)
+    elif case.workload_kind == "eviction-restore":
+        (
+            measure_rows,
+            measure_lengths,
+            populate_rows,
+            populate_lengths,
+        ) = _generate_eviction_restore_rows(
+            case, config, tokenizer, rng, allowed_tokens
+        )
     elif case.workload_kind == "shared-prefix":
         measure_rows, measure_lengths = _generate_shared_rows(
             count,
@@ -364,9 +395,7 @@ def generate_workload(
             measure_lengths,
             populate_rows,
             populate_lengths,
-        ) = _generate_mixed_rows(
-            case, config, tokenizer, rng, allowed_tokens
-        )
+        ) = _generate_mixed_rows(case, config, tokenizer, rng, allowed_tokens)
     else:
         raise WorkloadGenerationError(
             f"unsupported workload kind: {case.workload_kind}"
@@ -409,6 +438,7 @@ def generate_workload(
         "request_rate": case.request_rate,
         "repetition": case.repetition,
         "generator_seed": seed,
+        "pressure_fill_requests": config.workload.pressure_fill_requests,
         "files": files,
     }
     _atomic_write_text(
