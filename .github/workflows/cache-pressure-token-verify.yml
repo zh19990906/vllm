@@ -1,0 +1,17 @@
+name: cache-pressure-token-verify
+
+on:
+  push:
+    branches:
+      - feature/cache-eviction-restore-benchmark
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -q pytest pydantic PyYAML
+      - run: python -m pytest -q benchmarks/cache/tests/test_pressure_token_budget.py
