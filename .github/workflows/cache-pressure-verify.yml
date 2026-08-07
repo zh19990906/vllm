@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/cache-eviction-restore-benchmark
+  pull_request:
 
 jobs:
   test:
