@@ -29,6 +29,7 @@ from typing_extensions import override
 
 from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (
     OffloadingConnectorStats,
+    _ConnectorMetricName,
 )
 from vllm.logger import init_logger
 from vllm.v1.kv_offload.base import (
@@ -359,11 +360,22 @@ class TieringOffloadingManager(OffloadingManager):
             state.promotion_elapsed_seconds[tier_key] = elapsed_seconds
         promoted_tokens = self._token_span_for_keys(promoted_keys)
         if promoted_tokens > 0:
-            self._cost_model.observe_secondary_promotion(
+            observation = self._cost_model.observe_secondary_promotion(
                 tier_key,
                 promoted_tokens,
                 elapsed_seconds * 1000.0,
             )
+            if observation is not None:
+                source = f"secondary:{tier_key}"
+                self._stats.increase_counter(
+                    _ConnectorMetricName.COST_OBSERVATIONS,
+                    labelvalues=(source,),
+                )
+                self._stats.set_gauge(
+                    _ConnectorMetricName.COST_RUNTIME_SCALE,
+                    observation.runtime_scale,
+                    labelvalues=(source, str(observation.token_bucket)),
+                )
 
     def _token_span_for_keys(self, keys: Collection[OffloadKey]) -> int:
         per_group: dict[int, int] = {}
