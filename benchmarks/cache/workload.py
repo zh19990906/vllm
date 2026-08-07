@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -282,6 +283,16 @@ def _generate_unique_rows(
     return rows, lengths
 
 
+def _pressure_fill_request_count(
+    case: ExecutionCase,
+    config: SuiteConfig,
+) -> int:
+    token_budget = config.workload.pressure_fill_tokens
+    if token_budget > 0:
+        return math.ceil(token_budget / case.prompt_tokens)
+    return config.workload.pressure_fill_requests
+
+
 def _generate_eviction_restore_rows(
     case: ExecutionCase,
     config: SuiteConfig,
@@ -295,7 +306,8 @@ def _generate_eviction_restore_rows(
     list[int],
 ]:
     victim_count = config.workload.requests_per_case
-    population_count = victim_count + config.workload.pressure_fill_requests
+    pressure_fill_requests = _pressure_fill_request_count(case, config)
+    population_count = victim_count + pressure_fill_requests
     population, population_lengths = _generate_unique_rows(
         population_count, case, config, tokenizer, rng, allowed_tokens
     )
@@ -509,6 +521,8 @@ def generate_workload(
         "repetition": case.repetition,
         "generator_seed": seed,
         "pressure_fill_requests": config.workload.pressure_fill_requests,
+        "pressure_fill_tokens": config.workload.pressure_fill_tokens,
+        "derived_pressure_fill_requests": _pressure_fill_request_count(case, config),
         "files": files,
     }
     _atomic_write_text(
