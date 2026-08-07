@@ -39,6 +39,12 @@ jobs:
           python -m pytest -q \
             --confcutdir="${GITHUB_WORKSPACE}/tests/v1/kv_offload" \
             "${GITHUB_WORKSPACE}/tests/v1/kv_offload/tiering/test_shadow_cost_provenance.py"
+      - name: Run Task 3 deferred timing test
+        run: |
+          cd /tmp
+          python -m pytest -q \
+            --confcutdir="${GITHUB_WORKSPACE}/tests/v1/kv_offload" \
+            "${GITHUB_WORKSPACE}/tests/v1/kv_offload/tiering/test_shadow_cost_promotion_timing.py"
       - name: Run Task 4 scheduler shadow tests
         run: |
           cd /tmp
