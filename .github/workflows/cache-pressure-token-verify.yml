@@ -1,6 +1,7 @@
 name: cache-pressure-token-verify
 
 on:
+  pull_request:
   push:
     branches:
       - feature/cache-eviction-restore-benchmark
