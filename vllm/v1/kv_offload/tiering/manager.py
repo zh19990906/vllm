@@ -42,7 +42,9 @@ from vllm.v1.kv_offload.base import (
     ReqContext,
     RequestOffloadingContext,
     ScheduleEndContext,
+    get_offload_group_idx,
 )
+from vllm.v1.kv_offload.cost_model import LoadProvenance, OffloadCostModel
 from vllm.v1.kv_offload.cpu.common import CPULoadStoreSpec
 from vllm.v1.kv_offload.cpu.manager import CPUOffloadingManager
 from vllm.v1.kv_offload.cpu.shared_offload_region import SharedOffloadRegion
@@ -76,6 +78,12 @@ class RequestState:
     # time.monotonic() of this request's first deferred secondary-tier lookup;
     # None once consumed (observed) or while no secondary lookup is pending.
     secondary_lookup_start_time: float | None = None
+    # Shadow-cost state is allocated only when a cost model is enabled.
+    key_sources: dict[OffloadKey, str] | None = None
+    promotion_started_at: dict[str, float] | None = None
+    promotion_keys: dict[str, set[OffloadKey]] | None = None
+    promotion_pending_jobs: dict[str, int] | None = None
+    promotion_elapsed_seconds: dict[str, float] | None = None
 
 
 class CPUPrimaryTierOffloadingManager(CPUOffloadingManager):
@@ -176,6 +184,10 @@ class TieringOffloadingManager(OffloadingManager):
         self,
         primary_tier: CPUPrimaryTierOffloadingManager,
         secondary_tiers: list[SecondaryTierManager] | None = None,
+        *,
+        cost_model: OffloadCostModel | None = None,
+        secondary_tier_keys: tuple[str, ...] | None = None,
+        tokens_per_chunk_by_group: tuple[int, ...] = (),
     ):
         """
         Initialize the TieringOffloadingManager.
@@ -187,6 +199,21 @@ class TieringOffloadingManager(OffloadingManager):
         """
         self.primary_tier: CPUPrimaryTierOffloadingManager = primary_tier
         self.secondary_tiers = secondary_tiers or []
+        self._cost_model = cost_model
+        self._tokens_per_chunk_by_group = tokens_per_chunk_by_group
+        if cost_model is not None:
+            if secondary_tier_keys is None or len(secondary_tier_keys) != len(
+                self.secondary_tiers
+            ):
+                raise ValueError(
+                    "secondary_tier_keys must match secondary_tiers when the "
+                    "cost model is enabled"
+                )
+            self._secondary_tier_keys = dict(
+                zip(self.secondary_tiers, secondary_tier_keys)
+            )
+        else:
+            self._secondary_tier_keys: dict[SecondaryTierManager, str] = {}
 
         self._job_id_counter: int = 0
         # Job tracking: maps job_id to metadata for all in-flight transfers.
@@ -269,12 +296,85 @@ class TieringOffloadingManager(OffloadingManager):
                         job_metadata.req_context,
                         completed_job.success,
                     )
+                    try:
+                        self._finish_promotion_observation(
+                            tier, job_metadata, completed_job.success
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Ignoring shadow cost-model promotion observation error"
+                        )
                 else:
                     # primary→secondary transfer completed.
                     # Decrement ref_cnt on primary blocks.
                     self.primary_tier.complete_read(
                         job_metadata.keys, job_metadata.req_context
                     )
+
+    def _finish_promotion_observation(
+        self,
+        tier: SecondaryTierManager,
+        job_metadata: JobMetadata,
+        success: bool,
+    ) -> None:
+        if self._cost_model is None:
+            return
+        state = self._req_state.get(job_metadata.req_context.req_id)
+        if state is None or state.promotion_pending_jobs is None:
+            return
+
+        tier_key = self._secondary_tier_keys[tier]
+        pending = state.promotion_pending_jobs.get(tier_key, 0)
+        if pending <= 0:
+            return
+        pending -= 1
+        if pending:
+            state.promotion_pending_jobs[tier_key] = pending
+        else:
+            state.promotion_pending_jobs.pop(tier_key, None)
+
+        if not success:
+            if state.key_sources is not None:
+                expected_source = f"secondary:{tier_key}"
+                for key in job_metadata.keys:
+                    if state.key_sources.get(key) == expected_source:
+                        state.key_sources.pop(key, None)
+            if state.promotion_started_at is not None:
+                state.promotion_started_at.pop(tier_key, None)
+            if state.promotion_keys is not None:
+                state.promotion_keys.pop(tier_key, None)
+            return
+
+        if pending:
+            return
+        if state.promotion_started_at is None or state.promotion_keys is None:
+            return
+        start_time = state.promotion_started_at.pop(tier_key, None)
+        promoted_keys = state.promotion_keys.pop(tier_key, set())
+        if start_time is None or not promoted_keys:
+            return
+
+        elapsed_seconds = time.monotonic() - start_time
+        if state.promotion_elapsed_seconds is not None:
+            state.promotion_elapsed_seconds[tier_key] = elapsed_seconds
+        promoted_tokens = self._token_span_for_keys(promoted_keys)
+        if promoted_tokens > 0:
+            self._cost_model.observe_secondary_promotion(
+                tier_key,
+                promoted_tokens,
+                elapsed_seconds * 1000.0,
+            )
+
+    def _token_span_for_keys(self, keys: Collection[OffloadKey]) -> int:
+        per_group: dict[int, int] = {}
+        for key in set(keys):
+            group_idx = get_offload_group_idx(key)
+            if group_idx >= len(self._tokens_per_chunk_by_group):
+                return 0
+            per_group[group_idx] = per_group.get(group_idx, 0) + (
+                self._tokens_per_chunk_by_group[group_idx]
+            )
+        return max(per_group.values(), default=0)
 
     @override
     def lookup(
@@ -315,6 +415,8 @@ class TieringOffloadingManager(OffloadingManager):
 
         primary_hit = self.primary_tier.lookup(key, req_context)
         if primary_hit is LookupResult.HIT:
+            if req_state is not None and req_state.key_sources is not None:
+                req_state.key_sources.setdefault(key, "cpu_primary")
             return LookupResult.HIT
         if primary_hit is LookupResult.HIT_PENDING:
             return LookupResult.HIT_PENDING
@@ -328,12 +430,18 @@ class TieringOffloadingManager(OffloadingManager):
             if result is LookupResult.HIT:
                 promoted = self._initiate_promotion(tier, key, req_context)
                 self._accumulate_lookup_sync_delay(req_state, lookup_start)
-                if (
-                    req_state is not None
-                    and promoted
-                    and req_state.secondary_lookup_start_time is None
-                ):
-                    req_state.secondary_lookup_start_time = lookup_start
+                if req_state is not None and promoted:
+                    if req_state.secondary_lookup_start_time is None:
+                        req_state.secondary_lookup_start_time = lookup_start
+                    if req_state.key_sources is not None:
+                        tier_key = self._secondary_tier_keys[tier]
+                        req_state.key_sources[key] = f"secondary:{tier_key}"
+                        assert req_state.promotion_started_at is not None
+                        assert req_state.promotion_keys is not None
+                        req_state.promotion_started_at.setdefault(
+                            tier_key, lookup_start
+                        )
+                        req_state.promotion_keys.setdefault(tier_key, set()).add(key)
                 return LookupResult.MISS if not promoted else LookupResult.RETRY
             if result is LookupResult.RETRY:
                 any_retry = True
@@ -442,6 +550,13 @@ class TieringOffloadingManager(OffloadingManager):
                     req_context=entry.req_context,
                 )
                 self._transfer_jobs[job_id] = job_metadata
+                if self._cost_model is not None:
+                    state = self._req_state.get(entry.req_context.req_id)
+                    if state is not None and state.promotion_pending_jobs is not None:
+                        tier_key = self._secondary_tier_keys[tier]
+                        state.promotion_pending_jobs[tier_key] = (
+                            state.promotion_pending_jobs.get(tier_key, 0) + 1
+                        )
                 tier.submit_load(job_metadata)
 
         self._pending_load_submissions.clear()
@@ -666,6 +781,12 @@ class TieringOffloadingManager(OffloadingManager):
         Only stores REQUEST_LEVEL tier decisions for use in prepare_store.
         """
         state = RequestState(req_context=req_context)
+        if self._cost_model is not None:
+            state.key_sources = {}
+            state.promotion_started_at = {}
+            state.promotion_keys = {}
+            state.promotion_pending_jobs = {}
+            state.promotion_elapsed_seconds = {}
         for tier in self.secondary_tiers:
             if tier is exclude_tier:
                 continue
@@ -800,6 +921,7 @@ class TieringOffloadingManager(OffloadingManager):
         finished_req_ids = []
         for req_id, state in self._req_state.items():
             state.pending_primary_stores = 0
+            self._clear_cost_state(state)
             if not state.is_finished:
                 continue
             for tier in self.secondary_tiers:
@@ -813,6 +935,74 @@ class TieringOffloadingManager(OffloadingManager):
         for req_id in finished_req_ids:
             del self._req_state[req_id]
         self._processed_jobs_this_step = False
+
+    def _clear_cost_state(self, state: RequestState) -> None:
+        if state.key_sources is not None:
+            state.key_sources.clear()
+        if state.promotion_started_at is not None:
+            state.promotion_started_at.clear()
+        if state.promotion_keys is not None:
+            state.promotion_keys.clear()
+        if state.promotion_pending_jobs is not None:
+            state.promotion_pending_jobs.clear()
+        if state.promotion_elapsed_seconds is not None:
+            state.promotion_elapsed_seconds.clear()
+
+    @override
+    def get_load_provenance(
+        self,
+        keys: Collection[OffloadKey],
+        req_context: ReqContext,
+        external_tokens: int,
+    ) -> LoadProvenance | None:
+        if self._cost_model is None or external_tokens <= 0:
+            return None
+        state = self._req_state.get(req_context.req_id)
+        if state is None or state.key_sources is None:
+            return None
+
+        selected_keys = tuple(keys)
+        if not selected_keys or any(key not in state.key_sources for key in selected_keys):
+            return None
+        sources = tuple(sorted({state.key_sources[key] for key in selected_keys}))
+        if not sources:
+            return None
+
+        lookup_sync_seconds = state.sync_lookup_delay or None
+        lookup_async_seconds: float | None = None
+        if len(sources) == 1:
+            source = sources[0]
+            confidence = "high"
+            secondary_promoted_tokens = (
+                external_tokens if source.startswith("secondary:") else 0
+            )
+            if source.startswith("secondary:") and state.promotion_elapsed_seconds:
+                tier_key = source.removeprefix("secondary:")
+                lookup_async_seconds = state.promotion_elapsed_seconds.get(tier_key)
+        else:
+            source = "mixed"
+            confidence = "low"
+            secondary_promoted_tokens = None
+            if state.promotion_elapsed_seconds:
+                elapsed = [
+                    state.promotion_elapsed_seconds[tier_source.removeprefix("secondary:")]
+                    for tier_source in sources
+                    if tier_source.startswith("secondary:")
+                    and tier_source.removeprefix("secondary:")
+                    in state.promotion_elapsed_seconds
+                ]
+                if elapsed:
+                    lookup_async_seconds = max(elapsed)
+
+        return LoadProvenance(
+            source=source,
+            external_tokens=external_tokens,
+            secondary_promoted_tokens=secondary_promoted_tokens,
+            sources=sources,
+            confidence=confidence,
+            lookup_sync_seconds=lookup_sync_seconds,
+            lookup_async_seconds=lookup_async_seconds,
+        )
 
     @override
     def get_stats(self) -> OffloadingConnectorStats | None:
