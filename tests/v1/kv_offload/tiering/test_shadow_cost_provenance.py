@@ -68,6 +68,9 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, type, type]:
         def debug(self, *args, **kwargs) -> None:
             pass
 
+        def exception(self, *args, **kwargs) -> None:
+            pass
+
     logger_module.init_logger = lambda name: _Logger()
     sys.modules["vllm.logger"] = logger_module
 
@@ -95,21 +98,36 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, type, type]:
         "vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics"
     )
 
+    class _ConnectorMetricName:
+        COST_OBSERVATIONS = "vllm:kv_offload_cost_observations"
+        COST_RUNTIME_SCALE = "vllm:kv_offload_cost_runtime_scale"
+
     class _Stats:
         def __init__(self) -> None:
             self.histograms = []
+            self.counters = []
+            self.gauges = []
 
         def observe_histogram(self, name, value, labelvalues=()) -> None:
             self.histograms.append((name, value, labelvalues))
 
+        def increase_counter(self, name, value=1, labelvalues=()) -> None:
+            self.counters.append((name, value, labelvalues))
+
+        def set_gauge(self, name, value, labelvalues=()) -> None:
+            self.gauges.append((name, value, labelvalues))
+
         def is_empty(self) -> bool:
-            return not self.histograms
+            return not (self.histograms or self.counters or self.gauges)
 
         def aggregate(self, other):
             self.histograms.extend(other.histograms)
+            self.counters.extend(other.counters)
+            self.gauges.extend(other.gauges)
             return self
 
     metrics_module.OffloadingConnectorStats = _Stats
+    metrics_module._ConnectorMetricName = _ConnectorMetricName
     sys.modules[metrics_module.__name__] = metrics_module
 
     cpu_common = ModuleType("vllm.v1.kv_offload.cpu.common")
@@ -176,6 +194,9 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, type, type]:
 
 _BASE, _COST_MODEL, CPULoadStoreSpec, JobResult = _install_stubs()
 _MANAGER_MODULE = sys.modules["vllm.v1.kv_offload.tiering.manager"]
+_METRICS_MODULE = sys.modules[
+    "vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics"
+]
 TieringOffloadingManager = _MANAGER_MODULE.TieringOffloadingManager
 LookupResult = _BASE.LookupResult
 ReqContext = _BASE.ReqContext
@@ -183,6 +204,7 @@ RequestOffloadingContext = _BASE.RequestOffloadingContext
 make_offload_key = _BASE.make_offload_key
 LoadProvenance = _COST_MODEL.LoadProvenance
 OffloadCostModel = _COST_MODEL.OffloadCostModel
+_ConnectorMetricName = _METRICS_MODULE._ConnectorMetricName
 
 
 class FakePrimary:
@@ -435,6 +457,19 @@ def test_successful_promotion_updates_secondary_runtime_scale() -> None:
     decision = model.shadow_decide(provenance)
     assert decision is not None
     assert abs(decision.runtime_scale - 1.2) < 1e-9
+
+    stats = manager.get_stats()
+    assert stats is not None
+    assert (
+        _ConnectorMetricName.COST_OBSERVATIONS,
+        1,
+        ("secondary:filesystem",),
+    ) in stats.counters
+    assert (
+        _ConnectorMetricName.COST_RUNTIME_SCALE,
+        1.2,
+        ("secondary:filesystem", "64"),
+    ) in stats.gauges
 
 
 def test_failed_completed_promotion_removes_provenance_and_skips_ewma() -> None:
