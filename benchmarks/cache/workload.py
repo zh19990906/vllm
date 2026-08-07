@@ -113,6 +113,84 @@ def _next_suffix_length(
     return candidate
 
 
+def _next_search_suffix_length(
+    *,
+    observations: dict[int, int],
+    requested_length: int,
+    fixed_prefix_length: int,
+) -> int:
+    """Choose an unseen suffix length from bracket, estimate, then local search."""
+    target_suffix_length = requested_length - fixed_prefix_length
+    lower = [item for item in observations.items() if item[1] < requested_length]
+    upper = [item for item in observations.items() if item[1] > requested_length]
+
+    if lower and upper:
+        lower_candidate, lower_observed = max(lower, key=lambda item: item[1])
+        upper_candidate, upper_observed = min(upper, key=lambda item: item[1])
+        bracket_low = min(lower_candidate, upper_candidate)
+        bracket_high = max(lower_candidate, upper_candidate)
+
+        if bracket_high - bracket_low > 1 and upper_observed != lower_observed:
+            fraction = (requested_length - lower_observed) / (
+                upper_observed - lower_observed
+            )
+            interpolated = round(
+                lower_candidate + fraction * (upper_candidate - lower_candidate)
+            )
+            interpolated = max(
+                bracket_low + 1,
+                min(bracket_high - 1, interpolated),
+            )
+            if interpolated not in observations:
+                return interpolated
+
+            for distance in range(1, bracket_high - bracket_low):
+                for candidate in (
+                    interpolated - distance,
+                    interpolated + distance,
+                ):
+                    if (
+                        bracket_low < candidate < bracket_high
+                        and candidate not in observations
+                    ):
+                        return candidate
+
+    best_candidate, best_observed = min(
+        observations.items(),
+        key=lambda item: (
+            abs(item[1] - requested_length),
+            abs(item[0] - target_suffix_length),
+        ),
+    )
+    proportional = _next_suffix_length(
+        current_suffix_length=best_candidate,
+        requested_length=requested_length,
+        observed_length=best_observed,
+        fixed_prefix_length=fixed_prefix_length,
+    )
+    if proportional not in observations:
+        return proportional
+
+    direction = 1 if best_observed < requested_length else -1
+    for distance in range(1, 33):
+        for candidate in (
+            best_candidate + direction * distance,
+            best_candidate - direction * distance,
+        ):
+            if candidate >= 0 and candidate not in observations:
+                return candidate
+
+    candidate = (
+        max(observations) + 1
+        if best_observed < requested_length
+        else max(0, min(observations) - 1)
+    )
+    while candidate in observations:
+        candidate += direction
+        candidate = max(0, candidate)
+    return candidate
+
+
 def _sample_prompt(
     *,
     rng: random.Random,
@@ -133,7 +211,7 @@ def _sample_prompt(
 
     candidate_suffix_length = target_suffix_length
     suffix_tokens: list[int] = []
-    tried_suffix_lengths: set[int] = set()
+    observations: dict[int, int] = {}
     last_observed = -1
     for _ in range(32):
         while len(suffix_tokens) < candidate_suffix_length:
@@ -144,22 +222,14 @@ def _sample_prompt(
         prompt = tokenizer.decode(token_ids, skip_special_tokens=True)
         encoded = tokenizer.encode(prompt, add_special_tokens=False)
         last_observed = len(encoded)
-        tried_suffix_lengths.add(candidate_suffix_length)
+        observations[candidate_suffix_length] = last_observed
 
         if abs(last_observed - requested_length) > tolerance:
-            next_candidate = _next_suffix_length(
-                current_suffix_length=candidate_suffix_length,
+            candidate_suffix_length = _next_search_suffix_length(
+                observations=observations,
                 requested_length=requested_length,
-                observed_length=last_observed,
                 fixed_prefix_length=len(fixed_prefix),
             )
-            direction = 1 if last_observed < requested_length else -1
-            while (
-                next_candidate in tried_suffix_lengths
-                and next_candidate + direction >= 0
-            ):
-                next_candidate += direction
-            candidate_suffix_length = next_candidate
             continue
 
         encoded_tuple = tuple(encoded)
@@ -170,7 +240,7 @@ def _sample_prompt(
         if not prefix_matches or not is_unique:
             candidate_suffix_length = target_suffix_length
             suffix_tokens.clear()
-            tried_suffix_lengths.clear()
+            observations.clear()
             continue
 
         if seen is not None:
