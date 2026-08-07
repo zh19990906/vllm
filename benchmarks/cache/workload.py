@@ -132,30 +132,47 @@ def _sample_prompt(
         )
 
     candidate_suffix_length = target_suffix_length
+    suffix_tokens: list[int] = []
+    tried_suffix_lengths: set[int] = set()
     last_observed = -1
     for _ in range(32):
+        while len(suffix_tokens) < candidate_suffix_length:
+            suffix_tokens.append(rng.choice(allowed_tokens))
+
         token_ids = list(fixed_prefix)
-        token_ids.extend(
-            rng.choice(allowed_tokens) for _ in range(candidate_suffix_length)
-        )
+        token_ids.extend(suffix_tokens[:candidate_suffix_length])
         prompt = tokenizer.decode(token_ids, skip_special_tokens=True)
         encoded = tokenizer.encode(prompt, add_special_tokens=False)
         last_observed = len(encoded)
+        tried_suffix_lengths.add(candidate_suffix_length)
+
         if abs(last_observed - requested_length) > tolerance:
-            candidate_suffix_length = _next_suffix_length(
+            next_candidate = _next_suffix_length(
                 current_suffix_length=candidate_suffix_length,
                 requested_length=requested_length,
                 observed_length=last_observed,
                 fixed_prefix_length=len(fixed_prefix),
             )
+            direction = 1 if last_observed < requested_length else -1
+            while (
+                next_candidate in tried_suffix_lengths
+                and next_candidate + direction >= 0
+            ):
+                next_candidate += direction
+            candidate_suffix_length = next_candidate
             continue
+
         encoded_tuple = tuple(encoded)
-        if required_encoded_prefix is not None and tuple(
+        prefix_matches = required_encoded_prefix is None or tuple(
             encoded[: len(required_encoded_prefix)]
-        ) != required_encoded_prefix:
+        ) == required_encoded_prefix
+        is_unique = seen is None or encoded_tuple not in seen
+        if not prefix_matches or not is_unique:
+            candidate_suffix_length = target_suffix_length
+            suffix_tokens.clear()
+            tried_suffix_lengths.clear()
             continue
-        if seen is not None and encoded_tuple in seen:
-            continue
+
         if seen is not None:
             seen.add(encoded_tuple)
         return prompt, encoded
