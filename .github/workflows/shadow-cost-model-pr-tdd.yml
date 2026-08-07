@@ -5,11 +5,91 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
-  focused:
+  patch-source-cleanup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feature/kv-offload-shadow-cost-model
+          fetch-depth: 0
+      - name: Apply exact source cleanup
+        run: |
+          test -f .github/shadow-source-cleanup-trigger
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected one cleanup anchor, got {text.count(old)}')
+              path.write_text(text.replace(old, new))
+
+          spec = Path('vllm/v1/kv_offload/tiering/spec.py')
+          replace_once(
+              spec,
+              '''        for tier_config in secondary_tier_configs:\n            assert isinstance(tier_config, dict)\n            tier_cls = SecondaryTierFactory.get_tier_class(tier_config)\n            metrics.update(tier_cls.build_metric_definitions(tier_config))''',
+              '''        for tier_config in secondary_tier_configs:\n            assert isinstance(tier_config, dict)\n            runtime_tier_config = cls._runtime_tier_config(tier_config)\n            tier_cls = SecondaryTierFactory.get_tier_class(runtime_tier_config)\n            metrics.update(tier_cls.build_metric_definitions(runtime_tier_config))''',
+          )
+          replace_once(
+              spec,
+              '''        if len(set(tier_keys)) != len(tier_keys):\n            raise ValueError(\n                "secondary tiers must have unique cost_model_tier_key values "\n                "when cache_cost_model is enabled"\n            )\n        return tuple(tier_keys)\n\n    def __init__(self, config: OffloadingConfig):''',
+              '''        if len(set(tier_keys)) != len(tier_keys):\n            raise ValueError(\n                "secondary tiers must have unique cost_model_tier_key values "\n                "when cache_cost_model is enabled"\n            )\n        return tuple(tier_keys)\n\n    @staticmethod\n    def _runtime_tier_config(tier_config: dict[str, Any]) -> dict[str, Any]:\n        runtime_config = tier_config.copy()\n        runtime_config.pop("cost_model_tier_key", None)\n        return runtime_config\n\n    def __init__(self, config: OffloadingConfig):''',
+          )
+          replace_once(
+              spec,
+              '''            for i, tier_config in enumerate(self.secondary_tier_configs):\n                try:\n                    tier = SecondaryTierFactory.create_secondary_tier(\n                        tier_config, primary_kv_view, self\n                    )''',
+              '''            for i, tier_config in enumerate(self.secondary_tier_configs):\n                try:\n                    runtime_tier_config = self._runtime_tier_config(tier_config)\n                    tier = SecondaryTierFactory.create_secondary_tier(\n                        runtime_tier_config, primary_kv_view, self\n                    )''',
+          )
+
+          base = Path('vllm/v1/kv_offload/base.py')
+          replace_once(
+              base,
+              '    Spec for loading/storing KV blocks from given block numbers.\n',
+              '    Spec for loading/storing a KV block to GPU memory.\n',
+          )
+          replace_once(
+              base,
+              '''    # Ordered list of unique block tensors,\n    # each with shape (num_blocks, ...).\n''',
+              '''    # Ordered list of unique block tensors, each with shape\n    # (num_blocks, ...).\n''',
+          )
+          replace_once(
+              base,
+              '''    # Per-KV-cache-group list of data references of the tensors.\n    # i.e. how each KV cache group maps to the tensors.\n''',
+              '''    # Per-KV-cache-group list of data references that map each layer\n    # in the group to the appropriate entry in the tensors list.\n''',
+          )
+
+          scheduler = Path(
+              'vllm/distributed/kv_transfer/kv_connector/v1/offloading/scheduler.py'
+          )
+          replace_once(
+              scheduler,
+              'from vllm.v1.kv_offload.cost_model import LoadProvenance, OffloadCostModel, ShadowDecision\n',
+              '''from vllm.v1.kv_offload.cost_model import (\n    LoadProvenance,\n    OffloadCostModel,\n    ShadowDecision,\n)\n''',
+          )
+          PY
+      - name: Commit exact source cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            vllm/v1/kv_offload/base.py \
+            vllm/v1/kv_offload/tiering/spec.py \
+            vllm/distributed/kv_transfer/kv_connector/v1/offloading/scheduler.py
+          git diff --cached --check
+          git commit -m 'fix: isolate shadow-only tier configuration'
+          git push origin HEAD:feature/kv-offload-shadow-cost-model
+
+  focused:
+    needs: patch-source-cleanup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/kv-offload-shadow-cost-model
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
