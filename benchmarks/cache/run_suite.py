@@ -207,6 +207,34 @@ def _ensure_command_success(result: CommandResult, stage: str) -> None:
         )
 
 
+def _validate_population_result(
+    path: Path, expected: int, result: CommandResult
+) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BenchmarkExecutionError(
+            f"population result invalid: expected={expected}, "
+            "completed=None, failed=None",
+            result,
+        ) from error
+
+    if not isinstance(payload, Mapping):
+        completed = None
+        failed = None
+    else:
+        completed = payload.get("completed")
+        failed = payload.get("failed")
+
+    valid_counts = type(completed) is int and type(failed) is int
+    if not valid_counts or completed != expected or failed != 0:
+        raise BenchmarkExecutionError(
+            f"population result invalid: expected={expected}, "
+            f"completed={completed!r}, failed={failed!r}",
+            result,
+        )
+
+
 def _command_result_payload(result: CommandResult | None) -> dict[str, Any] | None:
     if result is None:
         return None
@@ -354,6 +382,11 @@ def execute_case(
                 timeout_seconds=BENCHMARK_TIMEOUT_SECONDS,
             )
             _ensure_command_success(command_result, "population")
+            _validate_population_result(
+                population_result_path,
+                artifacts.num_population_prompts,
+                command_result,
+            )
 
         if case.workload_kind == "restart-persistence":
             stage = "restart_shutdown"
