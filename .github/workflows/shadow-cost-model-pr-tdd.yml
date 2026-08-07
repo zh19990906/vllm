@@ -15,9 +15,16 @@ jobs:
           python-version: '3.11'
       - name: Install test dependency
         run: python -m pip install --disable-pip-version-check pytest
+      - name: Prepare pure-Python vllm package stub
+        run: |
+          mkdir -p /tmp/vllm-pure-stub/vllm
+          cat > /tmp/vllm-pure-stub/vllm/__init__.py <<'PY'
+          from pkgutil import extend_path
+          __path__ = extend_path(__path__, __name__)
+          PY
       - name: Run Task 1 cost model tests
         env:
-          PYTHONPATH: .
+          PYTHONPATH: /tmp/vllm-pure-stub:.
         run: >-
           python -m pytest -q
           --confcutdir=tests/v1/kv_offload
