@@ -24,8 +24,9 @@ jobs:
           PY
       - name: Run Task 1 cost model tests
         env:
-          PYTHONPATH: /tmp/vllm-pure-stub:.
-        run: >-
-          python -m pytest -q
-          --confcutdir=tests/v1/kv_offload
-          tests/v1/kv_offload/test_cost_model.py
+          PYTHONPATH: /tmp/vllm-pure-stub:${{ github.workspace }}
+        run: |
+          cd /tmp
+          python -m pytest -q \
+            --confcutdir="${GITHUB_WORKSPACE}/tests/v1/kv_offload" \
+            "${GITHUB_WORKSPACE}/tests/v1/kv_offload/test_cost_model.py"
