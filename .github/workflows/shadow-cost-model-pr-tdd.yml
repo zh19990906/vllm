@@ -15,12 +15,17 @@ jobs:
           python-version: '3.11'
       - name: Install test dependency
         run: python -m pip install --disable-pip-version-check pytest
-      - name: Run focused shadow cost tests
+      - name: Run Task 1 cost model tests
         run: |
           cd /tmp
           python -m pytest -q \
             --confcutdir="${GITHUB_WORKSPACE}/tests/v1/kv_offload" \
-            "${GITHUB_WORKSPACE}/tests/v1/kv_offload/test_cost_model.py" \
+            "${GITHUB_WORKSPACE}/tests/v1/kv_offload/test_cost_model.py"
+      - name: Run Task 2 spec wiring tests
+        run: |
+          cd /tmp
+          python -m pytest -q \
+            --confcutdir="${GITHUB_WORKSPACE}/tests/v1/kv_offload" \
             "${GITHUB_WORKSPACE}/tests/v1/kv_offload/tiering/test_shadow_cost_spec.py"
       - name: Compile Task 1 module
         run: python -m compileall -q vllm/v1/kv_offload/cost_model.py
