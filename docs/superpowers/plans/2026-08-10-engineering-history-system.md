@@ -160,8 +160,8 @@ actual-path invariance, focused tests, scheduler integration, and final PR-scope
 
 - [ ] **Step 1: Record authoritative remote state**
 
-Include PR #5 head, draft/open state, 13 changed files, and its relationship to merged PR
-#3 and PR #7.
+Include PR #5 head, draft/open state, 13 changed files, and its relationship to merged
+PR `#3` and PR `#7`.
 
 - [ ] **Step 2: Record the clean continuation path**
 
