@@ -6,13 +6,13 @@ Calibrate the existing shadow-only KV offload cost model with the real hardware 
 
 The primary calibration target is **P95 TTFT**. P50 and P99 remain diagnostic views. Completion requires **shadow decision accuracy >= 95%** on the validated #13 baseline and **P95 cost-prediction MAPE <= 15%** for the principal recompute/restore curves. Samples close to the crossover are reported with an explicit decision margin rather than treated as equivalent to large-cost mistakes.
 
-The recommended first implementation is deliberately conservative: retain the current `OffloadCostModel` decision equation and piecewise-linear `CostCurve`, recalibrate the profile on the runtime's actual `external_tokens` axis, and add an offline calibration/evaluation tool. Runtime formula changes are permitted only if this evidence-driven approach cannot meet the agreed acceptance criteria.
+The first implementation is deliberately conservative: retain the current `OffloadCostModel` decision equation and piecewise-linear `CostCurve`, recalibrate the profile on the runtime's actual `external_tokens` axis, and add an offline calibration/evaluation tool. Runtime formula changes are permitted only if this evidence-driven approach cannot meet the agreed acceptance criteria.
 
 ## Context
 
 #12 introduced an opt-in shadow cost model that distinguishes CPU-primary from secondary-tier provenance, predicts restore versus recompute cost, and calibrates secondary-tier promotion online with a bounded EWMA. It intentionally does not change the actual restore path.
 
-#13 then produced a systematic real-hardware baseline on Qwen2.5-7B-Instruct, one RTX PRO 5000 72GB Blackwell GPU, concurrency 1, and deterministic eviction/restore workloads. The main findings relevant to #14 are:
+#13 produced a systematic real-hardware baseline on Qwen2.5-7B-Instruct, one RTX PRO 5000 72GB Blackwell GPU, concurrency 1, and deterministic eviction/restore workloads. The findings relevant to #14 are:
 
 - valid CPU-primary P50 crossover lies between 192 and 216 requested prompt tokens;
 - CPU-primary restore is substantially faster than recompute from 256 through 4096 requested tokens;
@@ -65,15 +65,27 @@ absolute_error_ms = abs(predicted_ms - actual_ms)
 relative_error = absolute_error_ms / actual_ms
 ```
 
-Primary aggregate:
+For one curve:
 
 ```text
 MAPE = mean(relative_error) * 100
 ```
 
-Report MAPE separately for recompute, CPU-primary restore, tiered-fs restore, and the combined principal baseline samples.
+Report three primary curve MAPEs separately:
 
-The main acceptance threshold is:
+- recompute;
+- CPU-primary restore;
+- tiered-fs restore.
+
+Define the principal combined P95 MAPE as the macro-average of those three curve MAPEs:
+
+```text
+principal_mape = mean(recompute_mape, cpu_restore_mape, tiered_fs_restore_mape)
+```
+
+This avoids overweighting recompute merely because it is paired with more than one restore source.
+
+Acceptance threshold:
 
 ```text
 principal P95 cost-prediction MAPE <= 15%
@@ -81,7 +93,7 @@ principal P95 cost-prediction MAPE <= 15%
 
 ### Decision accuracy
 
-For each paired sample:
+For each paired restore/recompute anchor sample:
 
 ```text
 actual_preferred = restore   if actual_restore_p95 < actual_recompute_p95
@@ -105,6 +117,8 @@ Acceptance threshold:
 decision_accuracy >= 95%
 ```
 
+The #13 compact artifact contains 9 CPU anchor decisions (128, 192, 216, 224, 256, 512, 1024, 2048, 4096 requested tokens) and 5 tiered-fs anchor decisions (256, 512, 1024, 2048, 4096), for 14 scored decisions. On this fixed baseline, `>=95%` therefore requires **14/14 anchor decisions correct**; 13/14 is only 92.9%.
+
 ### Decision margin
 
 Also record:
@@ -122,9 +136,9 @@ For #14 reporting, a boundary-sensitive sample is any sample where:
 abs(actual_margin_ms) <= 1.0 ms
 ```
 
-This label is diagnostic only and does not relax the >=95% acceptance threshold.
+This label is diagnostic only and does not relax the acceptance threshold.
 
-## Source of Truth
+## Source of Truth and Scored Dataset
 
 The canonical calibration input is:
 
@@ -132,13 +146,34 @@ The canonical calibration input is:
 docs/engineering/validation/2026-08-10-issue13-restore-recompute-crossover.json
 ```
 
-The evaluator reads structured measurements from this artifact rather than copying numbers into source code.
+The evaluator reads structured measurements from this artifact rather than copying #13 result values into source code.
 
-Invalid or ambiguous samples must not silently enter calibration. In particular:
+### Full-cost anchor samples
+
+Full cost scoring uses rows with absolute recompute/restore P95 values:
+
+- `wide_curve`: recompute + CPU-primary restore + tiered-fs restore for 256, 512, 1024, 2048, 4096 requested tokens;
+- `cpu_crossover_points`: recompute + CPU-primary restore for 128, 192, 216, 224 requested tokens.
+
+For the recompute curve MAPE, score the unique requested-token anchors from the union of those sets: 128, 192, 216, 224, 256, 512, 1024, 2048, 4096. Wide rows do not count recompute twice merely because both CPU and tiered-fs decisions use the same paired no-cache measurement.
+
+### Boundary repeat samples
+
+`boundary_repeats` stores repeat deltas but not complete per-repeat absolute TTFT values. Therefore those repeats:
+
+- do **not** enter cost MAPE;
+- do **not** enter the 14-anchor decision-accuracy denominator;
+- are retained as supplemental P95 direction-stability checks at 192 and 216 requested tokens.
+
+The evaluator records these as `repeat_direction_checks` and verifies that the repeat P95 delta signs are consistent with the corresponding anchor-side interpretation available in the artifact.
+
+### Exclusions
+
+Invalid or ambiguous samples must not silently enter calibration:
 
 - the 2 GiB `cpu-offload` sweep is excluded from CPU restore calibration because runtime evidence proves it recomputed;
 - the 208 requested-token workload-generation failure is not a latency sample;
-- only restore samples with the required lower-tier/external-transfer evidence are eligible.
+- only restore samples backed by the #13 validation evidence are eligible.
 
 ## Runtime Axis: External KV Tokens
 
@@ -150,30 +185,37 @@ For a benchmark row with 8 measured requests:
 external_tokens_per_request = external_kv_tokens_total / 8
 ```
 
-The evaluator retains both axes in output: `requested_tokens` for benchmark provenance and crossover interpretation, and `external_tokens` for runtime prediction.
+The evaluator retains both axes in output:
+
+- `requested_tokens` for benchmark provenance and crossover interpretation;
+- `external_tokens` for cost-model calibration and runtime prediction.
 
 ## Duplicate External-Token Samples
 
 Different requested prompt lengths may collapse to the same runtime `external_tokens` value because of block/chunk boundaries. For example, #13 requested 216 and 224 both produced 192 external tokens per request.
 
-Profile construction handles duplicate external-token samples as follows:
+Profile construction handles duplicates as follows:
 
-1. keep every raw benchmark sample in the evaluator dataset;
-2. group calibration candidates by `(path, external_tokens)`;
+1. keep every full-cost raw anchor sample in the evaluator dataset;
+2. group calibration candidates by `(curve, external_tokens)`;
 3. use the **median P95 latency** as the profile sample for that runtime token count;
-4. score predictions against every original sample, not merely against the aggregated median.
+4. score predictions against every original eligible anchor sample, not merely against the aggregated median.
+
+Median aggregation avoids inventing a new runtime feature while remaining robust to small run-to-run variation.
 
 ## Profile Construction
 
 ### Recompute
 
-Construct a P95 recompute curve from the paired no-cache rows corresponding to valid #13 calibration cases.
+Construct a P95 recompute curve from paired no-cache anchor rows.
 
-Recompute lookup at runtime also uses external matched tokens. Therefore the evaluator maps each no-cache measurement to the external-token count of its paired valid restore workload, whose workload hashes are byte-identical.
+A no-cache row has no external KV transfer of its own, so its runtime x-coordinate is the `external_tokens` value of the paired valid restore workload with the same deterministic benchmark workload. The #13 artifact's fairness checks and workload hashes are the evidence for this pairing.
+
+When multiple anchors map to the same external-token count, use the median rule above.
 
 ### CPU-primary restore
 
-Build a multi-point CPU-primary P95 restore curve from valid 8 GiB CPU restore samples, including the short-prefix crossover points and the wide 256-4096 range.
+Build a multi-point CPU-primary P95 restore curve from valid 8 GiB CPU restore anchors, including the short-prefix crossover points and the wide 256-4096 range.
 
 The 2 GiB configured CPU-offload sweep is explicitly excluded.
 
@@ -181,7 +223,7 @@ Expected effect: replacing the old single 1024-token sample removes proportional
 
 ### tiered-fs restore
 
-Build a P95 tiered-fs restore curve from valid tiered-fs lower-tier restore samples at the wide measured points.
+Build a P95 tiered-fs restore curve from valid tiered-fs lower-tier restore anchors at the wide measured points.
 
 Retain filesystem/tiered-fs terminology. Do not rename the tier to NVMe.
 
@@ -189,7 +231,20 @@ Retain filesystem/tiered-fs terminology. Do not rename the tier to NVMe.
 
 #14 does not initially change the existing secondary promotion EWMA equation or its low-cardinality `(tier, token_bucket)` state.
 
-The agreed acceptance criteria for the static #13 baseline are evaluated against the calibrated seed profile. EWMA convergence/stability is separately tested with deterministic unit tests and, if needed, a focused shadow-only runtime validation.
+The static #13 acceptance criteria are evaluated against the calibrated seed profile with runtime scale 1.0. EWMA convergence/stability is separately tested with deterministic unit tests and, if needed, a focused shadow-only runtime validation.
+
+## Before/After Evaluation
+
+The validation report must distinguish calibration improvement from merely restating the fitted profile.
+
+Evaluate two profiles against the same anchor dataset:
+
+1. **before:** the #12 shadow profile values already recorded in the repository's #12 cost-model test/design artifacts;
+2. **after:** the deterministic external-token P95 profile derived from #13 by this design.
+
+The evaluator should expose a reusable `evaluate_profile(dataset, profile)` path so the same scoring logic is used for both. The CLI may accept an optional baseline profile file or the validation driver may construct one from the recorded #12 profile; the evaluator must not scrape Python test source at runtime.
+
+The final validation artifact records the provenance of the before-profile values explicitly.
 
 ## Offline Calibration Evaluator
 
@@ -201,15 +256,16 @@ benchmarks/cache/evaluate_cost_model.py
 
 Responsibilities:
 
-1. load the #13 structured JSON artifact;
-2. validate expected schema and required fields;
-3. build eligible calibration samples;
+1. load and validate the #13 structured artifact;
+2. build eligible anchor samples and supplemental repeat-direction checks;
+3. derive runtime external-token axes from paired workloads;
 4. aggregate duplicate external-token profile points with medians;
-5. instantiate the existing `OffloadCostModel` from the generated profile;
-6. run predictions for every eligible raw sample;
-7. calculate absolute error, relative error, MAPE, decision accuracy, and margins;
-8. emit a compact machine-readable result plus human-readable table/summary;
-9. fail nonzero in explicit `--check` mode if acceptance thresholds are missed.
+5. instantiate the existing `OffloadCostModel` from a supplied or derived profile;
+6. run predictions for every eligible anchor sample;
+7. calculate absolute error, relative error, per-curve MAPE, principal macro-MAPE, decision accuracy, and margins;
+8. validate supplemental repeat-direction checks;
+9. emit a compact machine-readable result plus human-readable summary;
+10. fail nonzero in explicit `--check` mode if acceptance thresholds are missed.
 
 Suggested CLI:
 
@@ -234,7 +290,7 @@ percentile
 acceptance_thresholds
 profile
 samples[]
-  path/source
+  source
   requested_tokens
   external_tokens
   actual_restore_ms
@@ -250,11 +306,15 @@ samples[]
   actual_margin_ms
   predicted_margin_ms
   boundary_sensitive
+repeat_direction_checks[]
 aggregate
-  per-path MAPE
-  combined MAPE
+  recompute_mape
+  cpu_restore_mape
+  tiered_fs_restore_mape
+  principal_macro_mape
   decision_accuracy
-  decision_correct / decision_total
+  decision_correct
+  decision_total
   acceptance_passed
 excluded_samples[]
 ```
@@ -265,18 +325,22 @@ excluded_samples[]
 
 Do not modify `OffloadCostModel`, `CostCurve`, scheduler, provenance, metrics, or manager behavior unless the calibrated external-token profile cannot satisfy the agreed acceptance criteria.
 
+This is the preferred outcome because it demonstrates that the current runtime abstraction is sufficient for the measured baseline.
+
 ### Phase 2: evidence-triggered model change
 
 Only if Phase 1 fails `decision_accuracy >= 95%` or principal P95 MAPE `<= 15%`, inspect residuals and make the smallest explainable model change.
 
-Candidate escalation order:
+Escalation order:
 
 1. verify token-axis pairing and duplicate aggregation;
 2. verify source/provenance classification;
 3. distinguish fixed overhead from token-proportional cost if residuals show systematic curvature outside piecewise interpolation coverage;
 4. only then consider extending curve semantics.
 
-Do not introduce requested-token or transfer-byte runtime features in #14 solely to fit this baseline. Those are candidate generalization features for #15.
+Any formula change requires new pure-unit tests and must preserve configuration backward compatibility unless there is a documented reason not to.
+
+Do not introduce requested-token or transfer-byte runtime features in #14 solely to fit this baseline. Those are candidate generalization features for #15 if the external-token/source-tier model fails across environments.
 
 ## EWMA Validation
 
@@ -316,13 +380,32 @@ The validation report must explicitly evaluate:
 
 ### Pure evaluator tests
 
-Use a small synthetic artifact fixture to test schema validation, invalid-sample exclusion, requested-to-external token pairing, duplicate external-token median aggregation, P95 selection, cost-error calculations, equal-cost decision rule, boundary-sensitive labeling, acceptance pass/fail behavior, and deterministic JSON output.
+Use a small synthetic artifact fixture to test:
+
+- schema validation;
+- invalid-sample exclusion;
+- requested-to-external token pairing;
+- unique recompute scoring;
+- duplicate external-token median aggregation;
+- P95 selection;
+- cost-error and macro-MAPE calculations;
+- equal-cost decision rule;
+- 14-anchor accuracy accounting;
+- boundary-sensitive labeling;
+- repeat-direction handling without absolute repeat TTFT;
+- acceptance pass/fail behavior;
+- deterministic JSON output.
 
 ### Existing cost-model tests
 
 Keep current pure `CostCurve` and `OffloadCostModel` tests unless evidence requires Phase 2 changes.
 
-Add calibrated-profile regression assertions covering at least the short CPU recompute-faster side, short CPU restore-faster side, wide CPU restore side, and all measured tiered-fs points remaining recompute-preferred.
+Add calibrated-profile regression assertions covering at least:
+
+- short CPU recompute-faster side;
+- short CPU restore-faster side;
+- wide CPU restore side;
+- all measured tiered-fs points remain recompute-preferred.
 
 ### Repository checks
 
@@ -339,13 +422,25 @@ docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.md
 docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json
 ```
 
-The report must include the source #13 artifact and baseline commit, calibrated external-token P95 profile, before/after error metrics where practical, per-sample decision table, acceptance thresholds and pass/fail, dominant error-source explanation, EWMA validation result, exclusions and limitations, exact commands used, and an explicit statement that execution remained shadow-only.
+The report must include:
+
+- source #13 artifact and baseline commit;
+- before-profile provenance and before/after metrics;
+- calibrated external-token P95 profile;
+- per-anchor decision table;
+- supplemental repeat-direction checks;
+- acceptance thresholds and pass/fail;
+- dominant error-source explanation;
+- EWMA validation result;
+- exclusions and limitations;
+- exact commands used;
+- explicit statement that execution remained shadow-only.
 
 ## Scope Boundaries / Handoff
 
 If #14 passes on the fixed baseline, #15 owns validation across different model, concurrency/load, and hardware conditions and decides whether additional low-cardinality features such as transfer bytes or hardware/profile identity are required.
 
-#16 may only enable active restore/recompute selection after #14 and the necessary #15 generalization evidence are accepted.
+#16 may only enable active restore/recompute selection after #14 and the necessary #15 generalization evidence are accepted. The active path must consume the same explicit provenance and calibrated cost semantics rather than reintroducing `cache hit => restore`.
 
 ## Completion Criteria
 
@@ -353,9 +448,10 @@ If #14 passes on the fixed baseline, #15 owns validation across different model,
 
 - [ ] P95 prediction-error and decision-accuracy metrics are implemented and documented.
 - [ ] #13 data are transformed into an external-token calibrated profile with invalid samples excluded by evidence.
-- [ ] Dominant baseline errors are explained and verified.
-- [ ] Shadow decision accuracy on the #13 baseline is >= 95%.
-- [ ] Principal P95 cost-prediction MAPE on the #13 baseline is <= 15%.
+- [ ] Before/after evaluation identifies and verifies the dominant baseline errors.
+- [ ] All 14 anchor shadow decisions are correct, satisfying the agreed >=95% threshold.
+- [ ] Principal P95 macro-MAPE on the #13 anchor baseline is <=15%.
+- [ ] Boundary repeat direction checks are retained as supplemental evidence.
 - [ ] EWMA convergence/isolation/clamp behavior is verified.
 - [ ] Runtime behavior remains shadow-only and unchanged.
 - [ ] Calibration method and results are recorded in `docs/engineering/validation/`.
