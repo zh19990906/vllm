@@ -23,9 +23,11 @@
 ### Task 1: Add regression coverage for non-stable tokenizer round trips
 
 **Files:**
+
 - Modify: `benchmarks/cache/tests/test_workload.py`
 
 **Interfaces:**
+
 - Consumes: `generate_workload(case, config, tokenizer) -> WorkloadArtifacts`
 - Produces: regression tests that require adaptive token-count convergence while exercising existing public workload behavior.
 
@@ -107,10 +109,12 @@ git commit -m "test: cover expanding tokenizer workloads"
 ### Task 2: Adapt sampled suffix length from observed encoded length
 
 **Files:**
+
 - Modify: `benchmarks/cache/workload.py`
 - Test: `benchmarks/cache/tests/test_workload.py`
 
 **Interfaces:**
+
 - Consumes: current sampled suffix length, requested total length, observed encoded total length, and fixed-prefix source length.
 - Produces: `_next_suffix_length(...) -> int`, a non-negative next candidate length that moves toward the requested encoded total.
 
@@ -212,11 +216,13 @@ git commit -m "fix: adapt cache prompt token generation"
 ### Task 3: Full verification and pull request
 
 **Files:**
+
 - Verify: `benchmarks/cache/workload.py`
 - Verify: `benchmarks/cache/tests/test_workload.py`
 - Verify: `benchmarks/cache/tests/`
 
 **Interfaces:**
+
 - Consumes: completed adaptive generator implementation.
 - Produces: verified branch and pull request ready to merge.
 

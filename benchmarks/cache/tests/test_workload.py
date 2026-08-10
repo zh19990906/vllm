@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import json
@@ -153,11 +156,11 @@ def test_shared_prefix_workload_is_deterministic(
 def test_shared_prefixes_match_and_suffixes_differ(
     suite_config, shared_prefix_case
 ) -> None:
-    artifacts = generate_workload(
-        shared_prefix_case, suite_config, FakeTokenizer()
-    )
+    artifacts = generate_workload(shared_prefix_case, suite_config, FakeTokenizer())
     rows = _rows(artifacts.measure_path)
-    prefix_len = round(shared_prefix_case.prompt_tokens * shared_prefix_case.prefix_ratio)
+    prefix_len = round(
+        shared_prefix_case.prompt_tokens * shared_prefix_case.prefix_ratio
+    )
     encoded = [FakeTokenizer().encode(row["prompt"]) for row in rows]
     assert len({tuple(tokens[:prefix_len]) for tokens in encoded}) == 1
     assert len({tuple(tokens[prefix_len:]) for tokens in encoded}) == len(rows)
@@ -192,9 +195,7 @@ def test_mixed_prefix_population_excludes_cold_subset(
     assert len(populate_rows) == exact_warm_count + 2
 
 
-def test_metadata_records_hashes_and_observed_lengths(
-    suite_config, cold_case
-) -> None:
+def test_metadata_records_hashes_and_observed_lengths(suite_config, cold_case) -> None:
     artifacts = generate_workload(cold_case, suite_config, FakeTokenizer())
     metadata = json.loads(artifacts.metadata_path.read_text(encoding="utf-8"))
     assert metadata["case_id"] == cold_case.case_id
@@ -207,15 +208,12 @@ def test_metadata_records_hashes_and_observed_lengths(
 def test_expanding_tokenizer_converges_to_requested_length(
     suite_config, warm_exact_case
 ) -> None:
-    artifacts = generate_workload(
-        warm_exact_case, suite_config, ExpandingTokenizer()
-    )
+    artifacts = generate_workload(warm_exact_case, suite_config, ExpandingTokenizer())
     metadata = json.loads(artifacts.metadata_path.read_text(encoding="utf-8"))
     lengths = metadata["files"]["measure"]["observed_token_lengths"]
     tolerance = suite_config.workload.token_length_tolerance
     assert all(
-        abs(length - warm_exact_case.prompt_tokens) <= tolerance
-        for length in lengths
+        abs(length - warm_exact_case.prompt_tokens) <= tolerance for length in lengths
     )
 
 
@@ -242,8 +240,7 @@ def test_value_sensitive_tokenizer_converges_with_bounded_search(
     lengths = metadata["files"]["measure"]["observed_token_lengths"]
     tolerance = suite_config.workload.token_length_tolerance
     assert all(
-        abs(length - warm_exact_case.prompt_tokens) <= tolerance
-        for length in lengths
+        abs(length - warm_exact_case.prompt_tokens) <= tolerance for length in lengths
     )
 
 

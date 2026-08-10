@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import json
@@ -116,11 +119,7 @@ def test_partial_results_survive_and_later_cases_continue(
                 request_rate="inf",
                 repetition=0,
                 result_dir=(
-                    tmp_path
-                    / "results"
-                    / "placeholder"
-                    / "raw"
-                    / f"case-{index}"
+                    tmp_path / "results" / "placeholder" / "raw" / f"case-{index}"
                 ),
                 filesystem_cache_dir=None,
             )
@@ -129,8 +128,7 @@ def test_partial_results_survive_and_later_cases_continue(
         run_suite,
         "build_execution_cases",
         lambda config, run_dir: [
-            replace(case, result_dir=run_dir / "raw" / case.case_id)
-            for case in cases
+            replace(case, result_dir=run_dir / "raw" / case.case_id) for case in cases
         ],
     )
     monkeypatch.setattr(run_suite, "load_tokenizer", lambda config: FakeTokenizer())
@@ -171,9 +169,10 @@ def test_partial_results_survive_and_later_cases_continue(
     def fake_run(command, *, env, stdout_path, stderr_path, timeout_seconds):
         nonlocal calls
         calls += 1
-        result_path = Path(command[command.index("--result-dir") + 1]) / command[
-            command.index("--result-filename") + 1
-        ]
+        result_path = (
+            Path(command[command.index("--result-dir") + 1])
+            / command[command.index("--result-filename") + 1]
+        )
         if calls == 2:
             return _command_result(command, stdout_path, stderr_path, returncode=2)
         result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -334,9 +333,10 @@ def test_shutdown_failure_replaces_completed_status(
     monkeypatch.setattr(run_suite, "ResourceSampler", FakeSampler)
 
     def fake_run(command, *, env, stdout_path, stderr_path, timeout_seconds):
-        result_path = Path(command[command.index("--result-dir") + 1]) / command[
-            command.index("--result-filename") + 1
-        ]
+        result_path = (
+            Path(command[command.index("--result-dir") + 1])
+            / command[command.index("--result-filename") + 1]
+        )
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(
             json.dumps({"completed": 2, "failed": 0, "p95_ttft_ms": 10.0}),
@@ -467,13 +467,10 @@ else:
     selected = next(
         case.case_id
         for case in build_execution_cases(config, tmp_path / "preview")
-        if case.cache_mode is CacheMode.NO_CACHE
-        and case.workload_kind == "cold-unique"
+        if case.cache_mode is CacheMode.NO_CACHE and case.workload_kind == "cold-unique"
     )
 
-    assert run_suite.main(
-        ["--config", str(config_path), "--case-id", selected]
-    ) == 0
+    assert run_suite.main(["--config", str(config_path), "--case-id", selected]) == 0
 
     run_dir = next(path for path in (tmp_path / "results").iterdir() if path.is_dir())
     for name in (

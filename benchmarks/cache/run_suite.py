@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import argparse
@@ -92,9 +95,7 @@ def _atomic_json(path: Path, payload: Any) -> None:
 def _sanitize_nested(value: Any) -> Any:
     if isinstance(value, Mapping):
         string_values = {
-            str(key): str(item)
-            for key, item in value.items()
-            if isinstance(item, str)
+            str(key): str(item) for key, item in value.items() if isinstance(item, str)
         }
         sanitized_strings = sanitize_environment(string_values)
         return {
@@ -370,7 +371,9 @@ def execute_case(
             stdout_path=Path(logs["server_stdout"]),
             stderr_path=Path(logs["server_stderr"]),
         )
-        wait_for_server(server, _base_url(config), config.server.startup_timeout_seconds)
+        wait_for_server(
+            server, _base_url(config), config.server.startup_timeout_seconds
+        )
 
         if artifacts.populate_path is not None:
             stage = "population"
@@ -530,9 +533,7 @@ def _prepare_run(
         selected = set(selected_case_ids)
         unknown = selected - {case.case_id for case in cases}
         if unknown:
-            raise ConfigurationError(
-                f"unknown case IDs: {', '.join(sorted(unknown))}"
-            )
+            raise ConfigurationError(f"unknown case IDs: {', '.join(sorted(unknown))}")
         cases = [case for case in cases if case.case_id in selected]
 
     scenarios = [_planned_scenario(case, config) for case in cases]
