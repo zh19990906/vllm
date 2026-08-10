@@ -66,7 +66,7 @@ Parent issue: **#9**.
 
 The next primary research issue is **#13**.
 
-#13 should produce systematic, structured real-hardware evidence for restore versus
+Issue #13 should produce systematic, structured real-hardware evidence for restore versus
 recompute across a sufficiently dense token/KV-size range. The purpose is not another
 benchmark feature for its own sake; the output must be usable to calibrate and judge the
 shadow cost model.
