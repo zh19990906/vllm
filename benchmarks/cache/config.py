@@ -117,7 +117,7 @@ class WorkloadConfig(StrictModel):
         return normalized
 
     @model_validator(mode="after")
-    def validate_pressure_mode(self) -> "WorkloadConfig":
+    def validate_pressure_mode(self) -> WorkloadConfig:
         if self.pressure_fill_requests > 0 and self.pressure_fill_tokens > 0:
             raise ValueError(
                 "at most one of pressure_fill_requests and pressure_fill_tokens "
