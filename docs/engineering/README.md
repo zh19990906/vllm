@@ -19,7 +19,7 @@ A new engineering session should read, in order:
 
 ### `CURRENT_STATE.md`
 
-Mutable summary of what is true now. Keep it compact. It should contain active PRs,
+Mutable summary of what is true now. Keep it compact. It should contain active PRs/issues,
 recently merged work, known blockers, source-of-truth rules, and the next workstream.
 
 When state changes, update this file rather than editing old historical snapshots to make
@@ -52,10 +52,21 @@ Validation answers: **what have we actually proved?**
 ### `handoffs/`
 
 Point-in-time continuation context for another session. Handoffs can contain transient
-branch heads, local paths, and execution constraints, but every transient fact must be
-dated and re-verified before use.
+branch heads, local paths, issue state, and execution constraints, but every transient fact
+must be dated and re-verified before use.
 
 Handoffs answer: **what should the next session do next?**
+
+## Relationship to GitHub Issues
+
+GitHub Issues are now the primary plan/status index for unfinished engineering work.
+`CURRENT_STATE.md` should link the parent roadmap and the active issue chain, while Issues
+hold completion criteria, dependencies, and current ownership/status.
+
+When an issue is completed, preserve its result, validation evidence, PR/commit identities,
+and close it with the completed reason. Important outcomes should also be recorded in the
+appropriate history, incident, or validation document so repository knowledge does not
+depend on the issue tracker alone.
 
 ## Relationship to Superpowers specs and plans
 
@@ -70,7 +81,7 @@ history and should remain visible.
 
 When records disagree, prefer:
 
-1. current GitHub PR, branch, and commit metadata;
+1. current GitHub PR, Issue, branch, and commit metadata;
 2. current repository files and diffs;
 3. raw hardware or benchmark artifacts;
 4. validation and history documents here;
@@ -84,7 +95,8 @@ changed. It should be read with its date.
 
 - Use ISO dates in filenames: `YYYY-MM-DD` or an explicit date range.
 - Prefer one incident per independently searchable root cause.
-- Preserve exact commit SHAs, PR numbers, test counts, and benchmark numbers when known.
+- Preserve exact commit SHAs, PR/Issue numbers, test counts, and benchmark numbers when
+  known.
 - Clearly label expected behavior versus observed behavior.
 - Clearly label validation-only profiles and machine-specific paths.
 - Never claim a test passed if it was not executed.
@@ -97,9 +109,9 @@ changed. It should be read with its date.
 ## Repository synchronization workflow
 
 Some validation work uses a Gitee mirror and Pod-side workspaces. Pod workspaces are a
-read/test environment, not an authoritative GitHub write path. GitHub branch, PR, and
-merge mutations should use an authorized GitHub-side mechanism; the resulting GitHub state
-can then be synchronized to Gitee and fetched by the Pod.
+read/test environment, not an authoritative GitHub write path. GitHub branch, PR, Issue,
+and merge mutations should use an authorized GitHub-side mechanism; the resulting GitHub
+state can then be synchronized to Gitee and fetched by the Pod.
 
 This distinction matters because a valid local commit is not useful as authoritative
 history if it cannot be delivered to the GitHub branch that owns the PR.
@@ -111,6 +123,7 @@ history if it cannot be delivered to the GitHub branch that owns the PR.
 - [`2026-08-07-pr3-cache-workload-fairness-convergence.md`](history/2026-08-07-pr3-cache-workload-fairness-convergence.md)
 - [`2026-08-07-to-2026-08-10-pr5-cache-eviction-restore-benchmark.md`](history/2026-08-07-to-2026-08-10-pr5-cache-eviction-restore-benchmark.md)
 - [`2026-08-07-to-2026-08-10-pr7-shadow-cost-model.md`](history/2026-08-07-to-2026-08-10-pr7-shadow-cost-model.md)
+- [`2026-08-10-pr5-finalization-and-roadmap-transition.md`](history/2026-08-10-pr5-finalization-and-roadmap-transition.md)
 
 ### Incidents
 
@@ -127,4 +140,6 @@ history if it cannot be delivered to the GitHub branch that owns the PR.
 
 ### Current handoff
 
-- [`2026-08-10-pr5-current-handoff.md`](handoffs/2026-08-10-pr5-current-handoff.md)
+- [`2026-08-10-post-pr5-roadmap.md`](handoffs/2026-08-10-post-pr5-roadmap.md)
+
+Older handoffs remain historical snapshots and should not be rewritten to look current.
