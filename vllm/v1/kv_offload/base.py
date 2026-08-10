@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (
         OffloadingConnectorStats,
     )
+    from vllm.v1.kv_offload.cost_model import LoadProvenance, OffloadCostModel
 
 from vllm.v1.kv_offload.config import OffloadingConfig
 
@@ -339,6 +340,15 @@ class OffloadingManager(ABC):
         """Evict all tracked blocks and reset internal state."""
         return
 
+    def get_load_provenance(
+        self,
+        keys: Collection[OffloadKey],
+        req_context: ReqContext,
+        external_tokens: int,
+    ) -> "LoadProvenance | None":
+        """Return logical source metadata for a selected external prefix."""
+        return None
+
     def get_stats(self) -> "OffloadingConnectorStats | None":
         """Return collected metrics since last call, or None if disabled."""
         return None
@@ -514,6 +524,10 @@ class OffloadingSpec(ABC):
         self.tokens_per_block = tuple(group.tokens_per_block for group in config.groups)
         self.tokens_per_hash = config.cache.tokens_per_hash
         self.blocks_per_chunk = config.cache.blocks_per_chunk
+
+    def get_cost_model(self) -> "OffloadCostModel | None":
+        """Return the optional scheduler-side offload cost model."""
+        return None
 
     @abstractmethod
     def get_manager(self) -> OffloadingManager:

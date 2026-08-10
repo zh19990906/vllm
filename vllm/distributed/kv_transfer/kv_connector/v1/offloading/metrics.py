@@ -36,6 +36,11 @@ class _ConnectorMetricName:
     LOOKUP_SYNC_DELAY = "vllm:kv_offload_lookup_sync_delay_seconds"
     LOOKUP_ASYNC_DELAY = "vllm:kv_offload_lookup_async_delay_seconds"
     ALLOCATION_FAILURE = "vllm:kv_offload_allocation_failure"
+    COST_SHADOW_DECISIONS = "vllm:kv_offload_cost_shadow_decisions"
+    COST_PREDICTED_RESTORE = "vllm:kv_offload_cost_predicted_restore_seconds"
+    COST_PREDICTED_RECOMPUTE = "vllm:kv_offload_cost_predicted_recompute_seconds"
+    COST_RUNTIME_SCALE = "vllm:kv_offload_cost_runtime_scale"
+    COST_OBSERVATIONS = "vllm:kv_offload_cost_observations"
 
 
 class _TransferType:
@@ -57,6 +62,21 @@ TRANSFER_SIZE_BUCKETS = (
     100e6,
     150e6,
     200e6,
+)
+
+COST_TIME_BUCKETS = (
+    0.001,
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.5,
+    5.0,
+    10.0,
 )
 
 
@@ -125,6 +145,28 @@ def get_connector_metric_definitions() -> dict[str, OffloadingMetricMetadata]:
             documentation=(
                 "Number of KV offload store allocation attempts that failed."
             ),
+        ),
+        _ConnectorMetricName.COST_SHADOW_DECISIONS: OffloadingCounterMetadata(
+            documentation="Number of shadow restore-versus-recompute decisions.",
+            labelnames=("source", "preferred", "confidence"),
+        ),
+        _ConnectorMetricName.COST_PREDICTED_RESTORE: OffloadingHistogramMetadata(
+            documentation="Histogram of predicted KV restore cost, in seconds.",
+            labelnames=("source",),
+            buckets=COST_TIME_BUCKETS,
+        ),
+        _ConnectorMetricName.COST_PREDICTED_RECOMPUTE: OffloadingHistogramMetadata(
+            documentation="Histogram of predicted recompute cost, in seconds.",
+            labelnames=("source",),
+            buckets=COST_TIME_BUCKETS,
+        ),
+        _ConnectorMetricName.COST_RUNTIME_SCALE: OffloadingGaugeMetadata(
+            documentation="Current EWMA scale for a secondary-tier token bucket.",
+            labelnames=("source", "token_bucket"),
+        ),
+        _ConnectorMetricName.COST_OBSERVATIONS: OffloadingCounterMetadata(
+            documentation="Number of secondary promotion cost observations.",
+            labelnames=("source",),
         ),
     }
 

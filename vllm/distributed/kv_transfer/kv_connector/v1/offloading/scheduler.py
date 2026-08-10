@@ -49,6 +49,11 @@ from vllm.v1.kv_offload.base import (
     ScheduleEndContext,
     make_offload_key,
 )
+from vllm.v1.kv_offload.cost_model import (
+    LoadProvenance,
+    OffloadCostModel,
+    ShadowDecision,
+)
 from vllm.v1.outputs import KVConnectorOutput
 from vllm.v1.request import Request
 
@@ -370,6 +375,7 @@ class OffloadingConnectorScheduler:
             spec, vllm_config, kv_cache_config
         )
         self.manager: OffloadingManager = spec.get_manager()
+        self._cost_model: OffloadCostModel | None = spec.get_cost_model()
         self._connector_stats = OffloadingConnectorStats()
 
         full_attention_groups: list[int] = []
@@ -700,6 +706,85 @@ class OffloadingConnectorScheduler:
 
         return num_hit_tokens
 
+    def _get_matched_external_keys(
+        self,
+        req_status: RequestOffloadState,
+        num_hit_tokens: int,
+    ) -> tuple[OffloadKey, ...]:
+        num_cached_tokens = req_status.num_locally_computed_tokens + num_hit_tokens
+        keys: list[OffloadKey] = []
+        for group_config, group_state in zip(
+            self.config.kv_group_configs, req_status.group_states
+        ):
+            start = (
+                req_status.num_locally_computed_tokens // group_config.tokens_per_chunk
+            )
+            end = cdiv(num_cached_tokens, group_config.tokens_per_chunk)
+            keys.extend(group_state.offload_keys[start:end])
+        return tuple(keys)
+
+    def _record_shadow_decision(
+        self,
+        request_id: str,
+        provenance: LoadProvenance,
+        decision: ShadowDecision,
+    ) -> None:
+        self._connector_stats.increase_counter(
+            _ConnectorMetricName.COST_SHADOW_DECISIONS,
+            labelvalues=(
+                provenance.source,
+                decision.preferred,
+                decision.confidence,
+            ),
+        )
+        self._connector_stats.observe_histogram(
+            _ConnectorMetricName.COST_PREDICTED_RESTORE,
+            decision.restore_estimate_ms / 1000.0,
+            labelvalues=(provenance.source,),
+        )
+        self._connector_stats.observe_histogram(
+            _ConnectorMetricName.COST_PREDICTED_RECOMPUTE,
+            decision.recompute_estimate_ms / 1000.0,
+            labelvalues=(provenance.source,),
+        )
+        logger.debug(
+            "KV offload cost shadow req=%s external_tokens=%d source=%s "
+            "restore_seed_ms=%.3f restore_estimate_ms=%.3f "
+            "recompute_estimate_ms=%.3f runtime_scale=%.3f preferred=%s "
+            "confidence=%s mode=shadow actual_path=restore",
+            request_id,
+            provenance.external_tokens,
+            provenance.source,
+            decision.restore_seed_ms,
+            decision.restore_estimate_ms,
+            decision.recompute_estimate_ms,
+            decision.runtime_scale,
+            decision.preferred,
+            decision.confidence,
+        )
+
+    def _maybe_record_shadow_decision(
+        self,
+        request_id: str,
+        req_status: RequestOffloadState,
+        num_hit_tokens: int,
+    ) -> None:
+        cost_model = self._cost_model
+        if cost_model is None or num_hit_tokens <= 0:
+            return
+        matched_keys = self._get_matched_external_keys(req_status, num_hit_tokens)
+        provenance = self.manager.get_load_provenance(
+            matched_keys,
+            req_status.req_context,
+            num_hit_tokens,
+        )
+        if provenance is None:
+            return
+        decision = cost_model.shadow_decide(provenance)
+        if decision is None:
+            return
+        self._record_shadow_decision(request_id, provenance, decision)
+
     def on_new_request(self, request: Request) -> None:
         """Called when a new request is added to the scheduler."""
         req_context = _create_req_context(request)
@@ -764,6 +849,19 @@ class OffloadingConnectorScheduler:
             else:
                 self._maybe_observe_lookup_async_delay(req_status)
         req_status.update_num_hit_chunks(num_computed_tokens + (num_hit_tokens or 0))
+
+        if num_hit_tokens is not None and num_hit_tokens > 0:
+            try:
+                self._maybe_record_shadow_decision(
+                    request.request_id,
+                    req_status,
+                    num_hit_tokens,
+                )
+            except Exception:
+                logger.exception(
+                    "Ignoring KV offload shadow cost-model error for request %s",
+                    request.request_id,
+                )
 
         self._touch(req_status)
 

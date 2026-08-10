@@ -31,7 +31,7 @@ Example configuration:
 }
 """
 
-from typing import Any
+from typing import Any, cast
 
 import torch
 from typing_extensions import override
@@ -44,6 +44,7 @@ from vllm.v1.kv_offload.base import (
     OffloadingMetricMetadata,
 )
 from vllm.v1.kv_offload.config import OffloadingConfig
+from vllm.v1.kv_offload.cost_model import OffloadCostModel
 from vllm.v1.kv_offload.cpu.gpu_worker import CPUOffloadingWorker
 from vllm.v1.kv_offload.cpu.shared_offload_region import SharedOffloadRegion
 from vllm.v1.kv_offload.cpu.spec import CPUOffloadingSpec
@@ -128,9 +129,43 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
 
         for tier_config in secondary_tier_configs:
             assert isinstance(tier_config, dict)
-            tier_cls = SecondaryTierFactory.get_tier_class(tier_config)
-            metrics.update(tier_cls.build_metric_definitions(tier_config))
+            runtime_tier_config = cls._runtime_tier_config(tier_config)
+            tier_cls = SecondaryTierFactory.get_tier_class(runtime_tier_config)
+            metrics.update(tier_cls.build_metric_definitions(runtime_tier_config))
         return metrics
+
+    @staticmethod
+    def _resolve_cost_model_tier_keys(
+        secondary_tier_configs: list[dict[str, Any]], *, enabled: bool
+    ) -> tuple[str, ...]:
+        if not enabled:
+            return tuple(
+                cast(str, tier_config.get("type"))
+                for tier_config in secondary_tier_configs
+            )
+
+        tier_keys: list[str] = []
+        for tier_config in secondary_tier_configs:
+            tier_key = tier_config.get("cost_model_tier_key", tier_config.get("type"))
+            if not isinstance(tier_key, str) or not tier_key:
+                raise ValueError(
+                    "cost_model_tier_key must be a non-empty string when "
+                    "cache_cost_model is enabled"
+                )
+            tier_keys.append(tier_key)
+
+        if len(set(tier_keys)) != len(tier_keys):
+            raise ValueError(
+                "secondary tiers must have unique cost_model_tier_key values "
+                "when cache_cost_model is enabled"
+            )
+        return tuple(tier_keys)
+
+    @staticmethod
+    def _runtime_tier_config(tier_config: dict[str, Any]) -> dict[str, Any]:
+        runtime_config = tier_config.copy()
+        runtime_config.pop("cost_model_tier_key", None)
+        return runtime_config
 
     def __init__(self, config: OffloadingConfig):
         super().__init__(config)
@@ -150,6 +185,12 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
         if not isinstance(self.secondary_tier_configs, list):
             raise ValueError("secondary_tiers must be a list of tier configurations")
 
+        self._cost_model = OffloadCostModel.from_extra_config(self.extra_config)
+        self._cost_model_tier_keys = self._resolve_cost_model_tier_keys(
+            self.secondary_tier_configs,
+            enabled=self._cost_model is not None,
+        )
+
         # Scheduler-side mmap (rank=None); kept for cleanup
         self._scheduler_mmap: SharedOffloadRegion | None = None
 
@@ -157,6 +198,10 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
         # the Ray and multiprocessing paths), so it names a per-replica offload
         # region.
         self._engine_id = config.engine_id
+
+    @override
+    def get_cost_model(self) -> OffloadCostModel | None:
+        return self._cost_model
 
     @override
     def get_manager(self) -> OffloadingManager:
@@ -195,8 +240,9 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
             secondary_tiers = []
             for i, tier_config in enumerate(self.secondary_tier_configs):
                 try:
+                    runtime_tier_config = self._runtime_tier_config(tier_config)
                     tier = SecondaryTierFactory.create_secondary_tier(
-                        tier_config, primary_kv_view, self
+                        runtime_tier_config, primary_kv_view, self
                     )
                     secondary_tiers.append(tier)
                     logger.info(
@@ -218,6 +264,12 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
             tiering_manager = TieringOffloadingManager(
                 primary_tier=primary_tier,
                 secondary_tiers=secondary_tiers,
+                cost_model=self._cost_model,
+                secondary_tier_keys=self._cost_model_tier_keys,
+                tokens_per_chunk_by_group=tuple(
+                    tokens_per_block * self.blocks_per_chunk
+                    for tokens_per_block in self.tokens_per_block
+                ),
             )
             if int(self.extra_config.get("store_threshold", 0)) >= 2:
                 raise ValueError(
