@@ -42,7 +42,7 @@ behavior.
 P95 TTFT for no-cache/recompute cases:
 
 | Prompt tokens | Recompute P95 TTFT |
-|---:|---:|
+| ---: | ---: |
 | 256 | 26.414 ms |
 | 512 | 44.961 ms |
 | 1024 | 81.705 ms |
@@ -54,7 +54,7 @@ P95 TTFT for no-cache/recompute cases:
 P95 TTFT for pressure cases restoring from the filesystem secondary tier:
 
 | Prompt tokens | Filesystem restore P95 TTFT |
-|---:|---:|
+| ---: | ---: |
 | 256 | 31.119 ms |
 | 512 | 56.979 ms |
 | 1024 | 108.132 ms |
@@ -72,7 +72,7 @@ The ratio worsened at longer prompts; at 4096 tokens, 651.127 ms is about 2.11 t
 The validation profile also recorded secondary promotion timing seeds:
 
 | Prompt tokens | Filesystem promotion time |
-|---:|---:|
+| ---: | ---: |
 | 256 | 13.916 ms |
 | 512 | 35.230 ms |
 | 1024 | 81.458 ms |
