@@ -112,7 +112,7 @@ Later benchmark work used a small real-tokenizer tolerance/preflight window arou
 sizes. Observed acceptable encoded ranges were:
 
 | Requested | Observed tolerance range |
-|---:|---:|
+| ---: | ---: |
 | 256 | 254-258 |
 | 512 | 510-514 |
 | 1024 | 1022-1026 |
