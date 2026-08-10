@@ -45,7 +45,11 @@ from vllm.v1.kv_offload.base import (
     ScheduleEndContext,
     get_offload_group_idx,
 )
-from vllm.v1.kv_offload.cost_model import LoadProvenance, OffloadCostModel
+from vllm.v1.kv_offload.cost_model import (
+    Confidence,
+    LoadProvenance,
+    OffloadCostModel,
+)
 from vllm.v1.kv_offload.cpu.common import CPULoadStoreSpec
 from vllm.v1.kv_offload.cpu.manager import CPUOffloadingManager
 from vllm.v1.kv_offload.cpu.shared_offload_region import SharedOffloadRegion
@@ -94,7 +98,7 @@ class CPUPrimaryTierOffloadingManager(CPUOffloadingManager):
     GPU-facing OffloadingManager interface. These aliases expose the same operations
     from the secondary tier perspective, where read/write refers to secondary
     accessing primary. This avoids confusion when reading TieringOffloadingManager
-    code (e.g. calling prepare_load inside a cascade/store path would be misleading).
+    code (e.g. calling prepare_load inside a store path would be misleading).
     """
 
     def __init__(
@@ -202,6 +206,7 @@ class TieringOffloadingManager(OffloadingManager):
         self.secondary_tiers = secondary_tiers or []
         self._cost_model = cost_model
         self._tokens_per_chunk_by_group = tokens_per_chunk_by_group
+        self._secondary_tier_keys: dict[SecondaryTierManager, str]
         if cost_model is not None:
             if secondary_tier_keys is None or len(secondary_tier_keys) != len(
                 self.secondary_tiers
@@ -214,7 +219,7 @@ class TieringOffloadingManager(OffloadingManager):
                 zip(self.secondary_tiers, secondary_tier_keys)
             )
         else:
-            self._secondary_tier_keys: dict[SecondaryTierManager, str] = {}
+            self._secondary_tier_keys = {}
 
         self._job_id_counter: int = 0
         # Job tracking: maps job_id to metadata for all in-flight transfers.
@@ -988,6 +993,7 @@ class TieringOffloadingManager(OffloadingManager):
 
         lookup_sync_seconds = state.sync_lookup_delay or None
         lookup_async_seconds: float | None = None
+        confidence: Confidence
         if len(sources) == 1:
             source = sources[0]
             confidence = "high"
