@@ -31,7 +31,7 @@ Example configuration:
 }
 """
 
-from typing import Any
+from typing import Any, cast
 
 import torch
 from typing_extensions import override
@@ -140,8 +140,9 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
     ) -> tuple[str, ...]:
         if not enabled:
             return tuple(
-                tier_config.get("type") for tier_config in secondary_tier_configs
-            )  # type: ignore[return-value]
+                cast(str, tier_config.get("type"))
+                for tier_config in secondary_tier_configs
+            )
 
         tier_keys: list[str] = []
         for tier_config in secondary_tier_configs:
