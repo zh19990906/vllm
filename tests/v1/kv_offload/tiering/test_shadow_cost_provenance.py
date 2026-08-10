@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# mypy: disable-error-code="attr-defined"
 
 import importlib.util
 import sys
@@ -12,7 +13,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 def _package(name: str) -> ModuleType:
     module = ModuleType(name)
-    module.__path__ = []  # type: ignore[attr-defined]
+    module.__path__ = []
     sys.modules[name] = module
     return module
 
@@ -103,9 +104,9 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, type, type]:
 
     class _Stats:
         def __init__(self) -> None:
-            self.histograms = []
-            self.counters = []
-            self.gauges = []
+            self.histograms: list[tuple[object, object, object]] = []
+            self.counters: list[tuple[object, object, object]] = []
+            self.gauges: list[tuple[object, object, object]] = []
 
         def observe_histogram(self, name, value, labelvalues=()) -> None:
             self.histograms.append((name, value, labelvalues))
@@ -131,7 +132,7 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, type, type]:
 
     cpu_common = ModuleType("vllm.v1.kv_offload.cpu.common")
 
-    class _CPULoadStoreSpec(base.LoadStoreSpec):
+    class _CPULoadStoreSpec(base.LoadStoreSpec):  # type: ignore[name-defined]
         def __init__(self, block_ids) -> None:
             self.block_ids = list(block_ids)
 
