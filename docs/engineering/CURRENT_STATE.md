@@ -71,7 +71,7 @@ The intended dependency chain is:
 - **#20**: clean the existing `benchmarks/cache` pre-commit/static baseline.
 - **#21**: permanently fix the fake `vllm` nested-newline fixture defect.
 
-#17 may proceed in parallel with #13-#15. #20 and #21 are maintenance workstreams and
+Issue #17 may proceed in parallel with #13-#15. #20 and #21 are maintenance workstreams and
 should not block the core restore/recompute research path.
 
 ### Later system work
