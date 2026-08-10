@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "issue": 13,
+  "date": "2026-08-10",
+  "title": "restore vs recompute crossover hardware baseline",
+  "baseline_commit": "b68dcd4f85b2ffe6299e75172218c1d44bff4040",
+  "scope": {
+    "model": "/mnt/model/Qwen2.5-7B-Instruct",
+    "concurrency": 1,
+    "request_rate": "inf",
+    "requests_per_case": 8,
+    "active_runtime_decision": false,
+    "purpose": "baseline measurement for issue #14 calibration"
+  },
+  "environment": {
+    "python_version": "Python 3.11.11",
+    "vllm_version": "0.26.0",
+    "gpu": [
+      "NVIDIA RTX PRO 5000 72GB Blackwell, GPU-5516e45d-3e50-69ef-f0f2-8ecff465beea, 73415 MiB, driver 580.126.09",
+      "NVIDIA RTX PRO 5000 72GB Blackwell, GPU-74f68875-4f31-d1fb-f276-b2bb9cc7c80d, 73415 MiB, driver 580.126.09"
+    ],
+    "benchmark_gpu": "CUDA_VISIBLE_DEVICES=0",
+    "cpu": {
+      "model": "AMD EPYC 9A75 64-Core Processor",
+      "gpu_visible_cpu_affinity": "0-63,128-191",
+      "gpu_visible_numa_affinity": "0"
+    },
+    "cpu_provenance_note": "The report generator's localized lscpu parser produced an empty structured CPU map. The model name was captured separately in the same Pod validation session; affinity is corroborated by nvidia-smi topo -m.",
+    "memory": "1.5 TiB total; about 1.3 TiB available; no swap",
+    "filesystem_cache_path": "/tmp/vllm-kv-cache",
+    "filesystem_cache_mount": "container overlay-backed filesystem",
+    "model_mount": "fuse.ossfs2 object-storage mount"
+  },
+  "config": {
+    "gpu_kv_bytes": 2147483648,
+    "cpu_bytes_baseline": 2147483648,
+    "cpu_bytes_valid_restore_sweep": 8589934592,
+    "offload_block_size": 64,
+    "eviction_policy": "lru",
+    "pressure_fill_tokens": 65536,
+    "pressure_fill_requests": 0,
+    "seed": 1,
+    "output_tokens": 1,
+    "token_length_tolerance": 2,
+    "filesystem_read_threads": 32,
+    "filesystem_write_threads": 16
+  },
+  "run_directories": {
+    "wide_smoke": "20260810T083254Z-d78c7e79",
+    "wide_sweep": "20260810T084238Z-d78c7e79",
+    "cpu_2g_invalid": "20260810T085151Z-d78c7e79",
+    "cpu_8g_1024": "20260810T090011Z-2b4f76bf",
+    "cpu_8g_wide": "20260810T090219Z-2b4f76bf",
+    "short_128_192": "20260810T090835Z-45ca6bec",
+    "point_224": "20260810T091358Z-d50cae9e",
+    "point_208_failure": "20260810T091653Z-581858ca",
+    "point_216": "20260810T092229Z-43e7c684",
+    "repeat_192_1": "20260810T092546Z-d5811de8",
+    "repeat_192_2": "20260810T092803Z-d5811de8",
+    "repeat_192_3": "20260810T092948Z-d5811de8",
+    "repeat_216_1": "20260810T093135Z-43e7c684",
+    "repeat_216_2": "20260810T093320Z-43e7c684",
+    "repeat_216_3": "20260810T093507Z-43e7c684"
+  },
+  "wide_curve": [
+    {
+      "requested_tokens": 256,
+      "recompute_ttft_ms": {"p50": 24.784205, "p95": 26.662790, "p99": 26.726353},
+      "cpu_restore_ttft_ms": {"p50": 20.150500, "p95": 21.872038, "p99": 22.346732},
+      "cpu_delta_ms": {"p50": -4.633706, "p95": -4.790752, "p99": -4.379621},
+      "tiered_fs_ttft_ms": {"p50": 30.305386, "p95": 36.006820, "p99": 38.121826},
+      "tiered_fs_delta_ms": {"p50": 5.521181, "p95": 9.344029, "p99": 11.395473},
+      "external_kv_tokens": 1856,
+      "cpu_to_gpu_bytes": 106430464,
+      "cpu_to_gpu_transfers": 8,
+      "tiered_fs_async_lookups": 8,
+      "measure_sha256": "b01bce7fce62c740fd38f1fd589df61a7900995a3b05783f1536b1471413d8f6",
+      "populate_sha256": "d0d78d067bd85726ff1cd056ce8daf85381080127f731b8b028d46daa6faf38b"
+    },
+    {
+      "requested_tokens": 512,
+      "recompute_ttft_ms": {"p50": 44.337729, "p95": 44.813489, "p99": 44.836202},
+      "cpu_restore_ttft_ms": {"p50": 19.742184, "p95": 23.056893, "p99": 24.062705},
+      "cpu_delta_ms": {"p50": -24.595546, "p95": -21.756596, "p99": -20.773497},
+      "tiered_fs_ttft_ms": {"p50": 50.514068, "p95": 59.158786, "p99": 59.826543},
+      "tiered_fs_delta_ms": {"p50": 6.176338, "p95": 14.345297, "p99": 14.990340},
+      "external_kv_tokens": 4096,
+      "cpu_to_gpu_bytes": 234881024,
+      "cpu_to_gpu_transfers": 8,
+      "tiered_fs_async_lookups": 8,
+      "measure_sha256": "2e40a5b13bf1985f69550cc009ce089266e0b5e961f9126d9e498d42f9cddecb",
+      "populate_sha256": "dfc96d168c2656b87d4fb6ee5acf4b9e65cb1b45c414be0d15d43a66e6ecfedb"
+    },
+    {
+      "requested_tokens": 1024,
+      "recompute_ttft_ms": {"p50": 77.678892, "p95": 81.258424, "p99": 81.361873},
+      "cpu_restore_ttft_ms": {"p50": 20.912617, "p95": 24.686534, "p99": 25.596956},
+      "cpu_delta_ms": {"p50": -56.766275, "p95": -56.571889, "p99": -55.764917},
+      "tiered_fs_ttft_ms": {"p50": 98.798750, "p95": 101.798821, "p99": 102.674850},
+      "tiered_fs_delta_ms": {"p50": 21.119858, "p95": 20.540398, "p99": 21.312978},
+      "external_kv_tokens": 8192,
+      "cpu_to_gpu_bytes": 469762048,
+      "cpu_to_gpu_transfers": 8,
+      "tiered_fs_async_lookups": 8,
+      "measure_sha256": "3c57d4e7cbc26c94a0db07898a41577db9242163bd78589f79e3596b80075a7d",
+      "populate_sha256": "7b4f89db161d259cfcfc64022ef7e321a26e38a70ee33fec821dcdada989d656"
+    },
+    {
+      "requested_tokens": 2048,
+      "recompute_ttft_ms": {"p50": 146.365161, "p95": 152.432876, "p99": 154.995363},
+      "cpu_restore_ttft_ms": {"p50": 26.095837, "p95": 29.172611, "p99": 30.249563},
+      "cpu_delta_ms": {"p50": -120.269324, "p95": -123.260266, "p99": -124.745800},
+      "tiered_fs_ttft_ms": {"p50": 184.965294, "p95": 320.792677, "p99": 322.014297},
+      "tiered_fs_delta_ms": {"p50": 38.600133, "p95": 168.359800, "p99": 167.018933},
+      "external_kv_tokens": 16128,
+      "cpu_to_gpu_bytes": 924844032,
+      "cpu_to_gpu_transfers": 8,
+      "tiered_fs_async_lookups": 8,
+      "measure_sha256": "bd4372b6a3684077a2e93437c291eaaa72f3ee665072efe9cff8ddb973a338c0",
+      "populate_sha256": "80ea87840359422c8adf34a1c999256e1a00c2e86f84a4dd5e315ffa4c7ba7c4"
+    },
+    {
+      "requested_tokens": 4096,
+      "recompute_ttft_ms": {"p50": 297.150146, "p95": 309.140170, "p99": 313.956896},
+      "cpu_restore_ttft_ms": {"p50": 33.190117, "p95": 35.213313, "p99": 35.420032},
+      "cpu_delta_ms": {"p50": -263.960029, "p95": -273.926857, "p99": -278.536865},
+      "tiered_fs_ttft_ms": {"p50": 639.955095, "p95": 648.234859, "p99": 649.321359},
+      "tiered_fs_delta_ms": {"p50": 342.804949, "p95": 339.094689, "p99": 335.364463},
+      "external_kv_tokens": 32704,
+      "cpu_to_gpu_bytes": 1875378176,
+      "cpu_to_gpu_transfers": 8,
+      "tiered_fs_async_lookups": 8,
+      "measure_sha256": "8a07e392e53bc91f4a5c90b3e7adfda589fc414cb2ba48a7426c545923ce5cbd",
+      "populate_sha256": "6cf2e87d4dba067c899d54f22e607ec91a6fd1abf604ede04a1dbba23f501a19"
+    }
+  ],
+  "cpu_crossover_points": [
+    {
+      "requested_tokens": 128,
+      "recompute_ttft_ms": {"p50": 17.663428, "p95": 19.659707, "p99": 20.261697},
+      "cpu_restore_ttft_ms": {"p50": 19.546008, "p95": 21.219634, "p99": 21.731620},
+      "delta_ms": {"p50": 1.882579, "p95": 1.559927, "p99": 1.469923},
+      "external_kv_tokens": 832,
+      "cpu_to_gpu_bytes": 47710208,
+      "cpu_to_gpu_transfers": 8,
+      "measure_sha256": "4660f2d9952b845431952f15473c8ee13a955275bc4c59a6729245c73c6d8317",
+      "populate_sha256": "47c67724bb47b2835ccb1f5969f77aec3b5ddf450285d7ef6ba215dcd524e58d"
+    },
+    {
+      "requested_tokens": 192,
+      "recompute_ttft_ms": {"p50": 18.690611, "p95": 22.185918, "p99": 22.591247},
+      "cpu_restore_ttft_ms": {"p50": 19.162101, "p95": 21.829567, "p99": 22.653010},
+      "delta_ms": {"p50": 0.471491, "p95": -0.356351, "p99": 0.061763},
+      "external_kv_tokens": 1344,
+      "cpu_to_gpu_bytes": 77070336,
+      "cpu_to_gpu_transfers": 8,
+      "measure_sha256": "a3afbc7ff19c1413d1fcd677af76ea48ac9284f23f828f072945869fe9f8de73",
+      "populate_sha256": "3c1c1806351faaa7633b07c37cc1ca207ec181b9a44ac997cd6b286827d33ebe"
+    },
+    {
+      "requested_tokens": 216,
+      "recompute_ttft_ms": {"p50": 23.010140, "p95": 24.871824, "p99": 25.393522},
+      "cpu_restore_ttft_ms": {"p50": 19.952978, "p95": 22.129518, "p99": 22.910672},
+      "delta_ms": {"p50": -3.057162, "p95": -2.742306, "p99": -2.482850},
+      "external_kv_tokens": 1536,
+      "cpu_to_gpu_bytes": 88080384,
+      "cpu_to_gpu_transfers": 8,
+      "measure_sha256": "b65810eac83edc40a0e8c6b1dca14498f4c0175ecdb939c501b51a22a3624096",
+      "populate_sha256": "7254e82b43e7ffd454307eadf432aa3f655342f4d7ec9a7d9d1520b74fcfb8e3"
+    },
+    {
+      "requested_tokens": 224,
+      "recompute_ttft_ms": {"p50": 23.244426, "p95": 25.291198, "p99": 25.980229},
+      "cpu_restore_ttft_ms": {"p50": 19.929613, "p95": 22.295138, "p99": 23.055340},
+      "delta_ms": {"p50": -3.314813, "p95": -2.996060, "p99": -2.924889},
+      "external_kv_tokens": 1536,
+      "cpu_to_gpu_bytes": 88080384,
+      "cpu_to_gpu_transfers": 8,
+      "measure_sha256": "41c1c74c5d0d56a2490c0c905257cf6e17366af35178c38d39a512f2ef0ffc23",
+      "populate_sha256": "35bb867d24461865ae761304cf31872ce4d9df6736c88ce26fffbf8448d26336"
+    }
+  ],
+  "boundary_repeats": {
+    "192": {
+      "repeat_count": 3,
+      "p50_delta_ms": [0.511621, 0.614461, 0.707572],
+      "p50_mean_delta_ms": 0.611218,
+      "p95_delta_ms": [-0.342283, -0.303890, -0.158826],
+      "p95_mean_delta_ms": -0.268333,
+      "p99_delta_ms": [0.187239, 0.206823, 0.390524],
+      "p99_mean_delta_ms": 0.261529,
+      "all_p50_repeats_favor_recompute": true
+    },
+    "216": {
+      "repeat_count": 3,
+      "p50_delta_ms": [-3.375001, -3.323992, -2.973195],
+      "p50_mean_delta_ms": -3.224063,
+      "p95_delta_ms": [-3.242693, -3.360189, -2.266975],
+      "p95_mean_delta_ms": -2.956619,
+      "p99_delta_ms": [-3.052054, -3.304875, -2.030358],
+      "p99_mean_delta_ms": -2.795762,
+      "all_p50_repeats_favor_restore": true
+    }
+  },
+  "invalid_cpu_2g_sweep": [
+    {"requested_tokens": 256, "recompute_p50_ms": 24.784205, "configured_cpu_mode_p50_ms": 25.425751, "delta_p50_ms": 0.641546, "external_kv_tokens": 0, "cpu_to_gpu_transfers": 0, "local_compute_tokens": 2049},
+    {"requested_tokens": 512, "recompute_p50_ms": 44.337729, "configured_cpu_mode_p50_ms": 44.517064, "delta_p50_ms": 0.179335, "external_kv_tokens": 0, "cpu_to_gpu_transfers": 0, "local_compute_tokens": 4105},
+    {"requested_tokens": 1024, "recompute_p50_ms": 77.678892, "configured_cpu_mode_p50_ms": 78.221377, "delta_p50_ms": 0.542485, "external_kv_tokens": 0, "cpu_to_gpu_transfers": 0, "local_compute_tokens": 8198},
+    {"requested_tokens": 2048, "recompute_p50_ms": 146.365161, "configured_cpu_mode_p50_ms": 146.882555, "delta_p50_ms": 0.517393, "external_kv_tokens": 0, "cpu_to_gpu_transfers": 0, "local_compute_tokens": 16379},
+    {"requested_tokens": 4096, "recompute_p50_ms": 297.150146, "configured_cpu_mode_p50_ms": 298.053463, "delta_p50_ms": 0.903317, "external_kv_tokens": 0, "cpu_to_gpu_transfers": 0, "local_compute_tokens": 32769}
+  ],
+  "workload_generation_failure_208": [
+    {"cache_mode": "no-cache", "status": "benchmark_error", "stage": "workload", "type": "WorkloadGenerationError", "message": "unable to generate prompt with requested length 208; last observed length was 190 after 32 attempts"},
+    {"cache_mode": "cpu-offload", "status": "benchmark_error", "stage": "workload", "type": "WorkloadGenerationError", "message": "unable to generate prompt with requested length 208; last observed length was 190 after 32 attempts"}
+  ],
+  "conclusions": {
+    "cpu_p50_crossover_requested_token_interval": [192, 216],
+    "cpu_p95_current_bracket_requested_tokens": [128, 192],
+    "tiered_fs_p50_crossover_found_256_4096": false,
+    "tiered_fs_result": "recompute faster at every measured point from 256 through 4096",
+    "source_tier_is_first_class_cost_model_input": true,
+    "requested_tokens_are_not_equivalent_to_external_restore_tokens": true,
+    "filesystem_provenance": "tiered-fs configuration; lower-tier/external restore proven, physical NVMe provenance not proven",
+    "cpu_2g_sweep": "invalid as CPU restore curve; victims were evicted from CPU and recomputed",
+    "208_point": "unavailable because deterministic workload generation failed; seed was not changed"
+  },
+  "validation_checks": {
+    "wide_measure_workloads_byte_identical": true,
+    "wide_population_workloads_byte_identical": true,
+    "cpu_wide_restore_evidence": true,
+    "tiered_fs_wide_restore_evidence": true,
+    "cpu_restore_faster_256_4096": true,
+    "tiered_fs_recompute_faster_256_4096": true,
+    "boundary_192_repeat_recompute_faster_p50": true,
+    "boundary_216_repeat_restore_faster_p50": true,
+    "invalid_2g_has_no_external_restore": true,
+    "208_failed_in_workload_generation": true
+  },
+  "limitations": [
+    "Baseline is concurrency=1 on one model and one machine.",
+    "Concurrency/model/hardware generalization belongs to issue #15.",
+    "Filesystem path is container overlay-backed in this Pod; do not label it physical NVMe.",
+    "P95 boundary is bracketed by 128 and 192 but 128 was not repeated.",
+    "208 requested tokens could not be generated under deterministic seed/tolerance.",
+    "Crossover interval is on requested-prompt axis, not exact restored-KV-token axis."
+  ]
+}
