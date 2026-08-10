@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import json
@@ -29,21 +32,19 @@ vllm:kv_offload_tiering_lookup_sync_delay_seconds_sum 1.8
     )
     delta = compute_prometheus_delta(before, after)
     assert delta["vllm:kv_offload_stores_skipped"]["value"] == 3
-    assert delta[
-        "vllm:kv_offload_tiering_lookup_sync_delay_seconds_count"
-    ]["value"] == 4
-    assert delta[
-        "vllm:kv_offload_tiering_lookup_sync_delay_seconds_sum"
-    ]["value"] == 1.2
+    assert (
+        delta["vllm:kv_offload_tiering_lookup_sync_delay_seconds_count"]["value"] == 4
+    )
+    assert (
+        delta["vllm:kv_offload_tiering_lookup_sync_delay_seconds_sum"]["value"] == 1.2
+    )
 
 
 def test_prometheus_labels_are_flattened_deterministically() -> None:
     snapshot = parse_prometheus_text(
         'vllm:prefix_cache_hits_total{model="m",rank="0"} 4\n'
     )
-    assert snapshot.samples == {
-        'vllm:prefix_cache_hits_total{model="m",rank="0"}': 4.0
-    }
+    assert snapshot.samples == {'vllm:prefix_cache_hits_total{model="m",rank="0"}': 4.0}
 
 
 def test_normalize_native_result_preserves_null_reason(tmp_path: Path) -> None:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import csv
@@ -84,7 +87,9 @@ def test_ttft_delta_and_improvement_have_opposite_signs() -> None:
 
 def test_rebuild_reports_writes_csv_and_markdown(tmp_path: Path) -> None:
     append_result(tmp_path / "scenario-results.jsonl", synthetic_record("no-cache"))
-    append_result(tmp_path / "scenario-results.jsonl", synthetic_record("gpu-apc", p95_ttft=50))
+    append_result(
+        tmp_path / "scenario-results.jsonl", synthetic_record("gpu-apc", p95_ttft=50)
+    )
     (tmp_path / "environment.json").write_text(
         '{"gpu_inventory":{"status":"available","stdout":"GPU"}}\n',
         encoding="utf-8",

@@ -49,7 +49,7 @@ python benchmarks/cache/run_suite.py \
 ## Cache modes
 
 | Mode | Prefix cache | Host tier | Secondary tier |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `no-cache` | Disabled | None | None |
 | `gpu-apc` | GPU APC | None | None |
 | `cpu-offload` | GPU APC | Pinned CPU memory | None |

@@ -10,7 +10,6 @@ import pytest
 
 from vllm.v1.kv_offload.cpu import shared_offload_region as sor
 
-
 PAGE_SIZE = mmap.PAGESIZE
 
 

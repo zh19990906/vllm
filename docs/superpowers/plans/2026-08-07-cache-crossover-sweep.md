@@ -29,10 +29,12 @@
 ### Task 1: Strict pressure-token configuration
 
 **Files:**
+
 - Modify: `benchmarks/cache/config.py`
 - Test: `benchmarks/cache/tests/test_config.py`
 
 **Interfaces:**
+
 - Consumes: existing `NonNegativeInt` alias and `WorkloadConfig`.
 - Produces: `WorkloadConfig.pressure_fill_tokens: int` with default `0`; model-level validation rejecting simultaneous non-zero request and token pressure.
 
@@ -107,10 +109,12 @@ git commit -m "Add token-budgeted cache pressure config"
 ### Task 2: Derive filler requests from token budget
 
 **Files:**
+
 - Modify: `benchmarks/cache/workload.py`
 - Modify: `benchmarks/cache/tests/test_eviction_restore_workload.py`
 
 **Interfaces:**
+
 - Consumes: `WorkloadConfig.pressure_fill_requests`, `WorkloadConfig.pressure_fill_tokens`, `ExecutionCase.prompt_tokens`.
 - Produces: `_pressure_fill_request_count(case: ExecutionCase, config: SuiteConfig) -> int` and metadata fields `pressure_fill_tokens` and `derived_pressure_fill_requests`.
 
@@ -215,10 +219,12 @@ git commit -m "Derive cache pressure from token budget"
 ### Task 3: Enable scenarios under either pressure mechanism
 
 **Files:**
+
 - Modify: `benchmarks/cache/scenarios.py`
 - Modify: `benchmarks/cache/tests/test_scenarios.py`
 
 **Interfaces:**
+
 - Consumes: `WorkloadConfig.pressure_fill_requests`, `WorkloadConfig.pressure_fill_tokens`.
 - Produces: `eviction-restore` cases whenever either configured pressure value is non-zero.
 
@@ -279,10 +285,12 @@ git commit -m "Enable eviction restore for token pressure"
 ### Task 4: Prove fairness across cache modes with token pressure
 
 **Files:**
+
 - Modify: `benchmarks/cache/tests/test_eviction_restore_workload.py`
 - Modify only if needed: `benchmarks/cache/workload.py`
 
 **Interfaces:**
+
 - Consumes: `_generator_seed` behavior and token-pressure filler derivation from Tasks 1-2.
 - Produces: regression proof that matching `no-cache`, `gpu-apc`, `cpu-offload`, and `tiered-fs` cases have byte-identical workload artifacts for a given prompt length.
 
@@ -319,9 +327,11 @@ git commit -m "Test token pressure workload fairness"
 ### Task 5: Add the hardware crossover configuration
 
 **Files:**
+
 - Create: `benchmarks/cache/configs/local-crossover.yaml`
 
 **Interfaces:**
+
 - Consumes: token-pressure semantics from Tasks 1-3.
 - Produces: one reproducible five-length local hardware configuration.
 
@@ -405,9 +415,11 @@ git commit -m "Add cache crossover sweep config"
 ### Task 6: Full benchmark-suite verification
 
 **Files:**
+
 - Verify all modified files from Tasks 1-5.
 
 **Interfaces:**
+
 - Produces: evidence that the new feature does not regress existing cache benchmark behavior.
 
 - [ ] **Step 1: Run the full cache tests**

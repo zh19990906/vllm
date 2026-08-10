@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import csv
@@ -62,13 +65,17 @@ def load_results(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     records: list[dict[str, Any]] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         if not line.strip():
             continue
         try:
             record = json.loads(line)
         except json.JSONDecodeError as error:
-            raise ValueError(f"invalid JSONL record at line {line_number}: {error}") from error
+            raise ValueError(
+                f"invalid JSONL record at line {line_number}: {error}"
+            ) from error
         if not isinstance(record, dict):
             raise ValueError(f"JSONL record at line {line_number} is not an object")
         records.append(record)
@@ -229,7 +236,9 @@ def write_summary_csv(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
     with temporary.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(SUMMARY_FIELDS), extrasaction="ignore")
+        writer = csv.DictWriter(
+            handle, fieldnames=list(SUMMARY_FIELDS), extrasaction="ignore"
+        )
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field) for field in SUMMARY_FIELDS})
@@ -290,7 +299,9 @@ def write_markdown_report(
                     + (f" — `{_markdown_escape(detail)}`" if detail else "")
                 )
             else:
-                lines.append(f"- **{_markdown_escape(key)}**: `{_markdown_escape(value)}`")
+                lines.append(
+                    f"- **{_markdown_escape(key)}**: `{_markdown_escape(value)}`"
+                )
     else:
         lines.append("- Environment evidence unavailable.")
 
@@ -339,17 +350,29 @@ def write_markdown_report(
     lines.extend(["", "## Commands and evidence", ""])
     for record in record_list:
         lines.append(f"### `{_markdown_escape(record.get('case_id'))}`")
-        commands = record.get("commands") if isinstance(record.get("commands"), Mapping) else {}
+        commands = (
+            record.get("commands")
+            if isinstance(record.get("commands"), Mapping)
+            else {}
+        )
         logs = record.get("logs") if isinstance(record.get("logs"), Mapping) else {}
-        lines.append(f"- Server: `{_markdown_escape(_command_text(commands.get('server')))}`")
+        lines.append(
+            f"- Server: `{_markdown_escape(_command_text(commands.get('server')))}`"
+        )
         if commands.get("populate"):
             lines.append(
-                f"- Population setup: `{_markdown_escape(_command_text(commands.get('populate')))}`"
+                "- Population setup: "
+                f"`{_markdown_escape(_command_text(commands.get('populate')))}`"
             )
-        lines.append(f"- Measurement: `{_markdown_escape(_command_text(commands.get('measure')))}`")
+        lines.append(
+            "- Measurement: "
+            f"`{_markdown_escape(_command_text(commands.get('measure')))}`"
+        )
         if logs:
             for name, log_path in sorted(logs.items()):
-                lines.append(f"- {_markdown_escape(name)}: `{_markdown_escape(log_path)}`")
+                lines.append(
+                    f"- {_markdown_escape(name)}: `{_markdown_escape(log_path)}`"
+                )
         comparison_reason = next(
             (
                 row.get("comparison_reason")
@@ -376,6 +399,4 @@ def rebuild_reports(run_dir: Path) -> None:
         if isinstance(loaded, Mapping):
             environment = loaded
     write_summary_csv(run_dir / "summary.csv", rows)
-    write_markdown_report(
-        run_dir / "report.md", records, rows, environment=environment
-    )
+    write_markdown_report(run_dir / "report.md", records, rows, environment=environment)

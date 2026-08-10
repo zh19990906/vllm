@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import hashlib
@@ -100,9 +103,7 @@ def build_execution_cases(config: SuiteConfig, run_dir: Path) -> list[ExecutionC
     concurrencies = _unique(config.workload.concurrency)
     request_rates = _unique(config.workload.request_rate)
     shared_ratios = [
-        ratio
-        for ratio in _unique(config.workload.shared_prefix_ratios)
-        if ratio > 0.0
+        ratio for ratio in _unique(config.workload.shared_prefix_ratios) if ratio > 0.0
     ]
     pressure_enabled = (
         config.workload.pressure_fill_requests > 0

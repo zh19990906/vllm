@@ -59,12 +59,14 @@ No existing source file should be modified.
 ### Task 1: Strict Configuration and Safety Primitives
 
 **Files:**
+
 - Create: `benchmarks/cache/__init__.py`
 - Create: `benchmarks/cache/config.py`
 - Create: `benchmarks/cache/tests/conftest.py`
 - Create: `benchmarks/cache/tests/test_config.py`
 
 **Interfaces:**
+
 - Produces: `SuiteConfig`, `load_suite_config(path: Path) -> SuiteConfig`, `sanitize_environment(env: Mapping[str, str]) -> dict[str, str]`, `assert_owned_child(path: Path, root: Path) -> None`, `create_owned_directory(path: Path, root: Path) -> Path`.
 - Consumers: Tasks 2–8.
 
@@ -312,10 +314,12 @@ git commit -m "feat: add cache benchmark configuration"
 ### Task 2: Cache Modes and Server Command Construction
 
 **Files:**
+
 - Create: `benchmarks/cache/scenarios.py`
 - Create: `benchmarks/cache/tests/test_scenarios.py`
 
 **Interfaces:**
+
 - Consumes: `SuiteConfig`, `create_owned_directory()`.
 - Produces: `CacheMode`, `ExecutionCase`, `build_execution_cases(config: SuiteConfig, run_dir: Path) -> list[ExecutionCase]`, `build_server_command(case: ExecutionCase, config: SuiteConfig) -> list[str]`, `build_server_environment(case: ExecutionCase, config: SuiteConfig) -> dict[str, str]`.
 - Consumers: Tasks 3, 7, 8.
@@ -530,10 +534,12 @@ git commit -m "feat: generate cache benchmark scenarios"
 ### Task 3: Deterministic Workloads and Native Benchmark Commands
 
 **Files:**
+
 - Create: `benchmarks/cache/workload.py`
 - Create: `benchmarks/cache/tests/test_workload.py`
 
 **Interfaces:**
+
 - Consumes: `SuiteConfig`, `ExecutionCase`.
 - Produces: `TokenizerProtocol`, `WorkloadArtifacts`, `generate_workload(case, config, tokenizer) -> WorkloadArtifacts`, `build_benchmark_command(case, config, dataset_path, native_result_path, *, num_prompts) -> list[str]`.
 - Consumers: Task 7.
@@ -738,10 +744,12 @@ git commit -m "feat: generate reproducible cache workloads"
 ### Task 4: Managed Processes and Readiness
 
 **Files:**
+
 - Create: `benchmarks/cache/process.py`
 - Create: `benchmarks/cache/tests/test_process.py`
 
 **Interfaces:**
+
 - Produces: `CommandResult`, `ManagedProcess`, `run_command()`, `start_server()`, `wait_for_server()`, `stop_server()`.
 - Consumers: Tasks 5 and 7.
 
@@ -846,10 +854,12 @@ git commit -m "feat: manage benchmark subprocesses"
 ### Task 5: Metrics, Resource Sampling, and Environment Evidence
 
 **Files:**
+
 - Create: `benchmarks/cache/metrics.py`
 - Create: `benchmarks/cache/tests/test_metrics.py`
 
 **Interfaces:**
+
 - Consumes: `CommandResult`, `ExecutionCase`, `SuiteConfig`.
 - Produces: `PrometheusSnapshot`, `ResourceSample`, `ResourceSampler`, `fetch_prometheus_snapshot()`, `compute_prometheus_delta()`, `normalize_native_result()`, `collect_environment_evidence()`.
 - Consumers: Tasks 6 and 7.
@@ -1004,10 +1014,12 @@ git commit -m "feat: collect cache benchmark metrics"
 ### Task 6: Append-Only Results and Comparison Reports
 
 **Files:**
+
 - Create: `benchmarks/cache/report.py`
 - Create: `benchmarks/cache/tests/test_report.py`
 
 **Interfaces:**
+
 - Produces: `append_result(path: Path, record: Mapping[str, Any]) -> None`, `load_results(path: Path) -> list[dict[str, Any]]`, `build_summary_rows(records) -> list[dict[str, Any]]`, `write_summary_csv()`, `write_markdown_report()`, `rebuild_reports(run_dir: Path) -> None`.
 - Consumers: Task 7.
 
@@ -1094,10 +1106,12 @@ git commit -m "feat: report cache benchmark results"
 ### Task 7: End-to-End Runner, Dry Run, and Restart Persistence
 
 **Files:**
+
 - Create: `benchmarks/cache/run_suite.py`
 - Create: `benchmarks/cache/tests/test_run_suite.py`
 
 **Interfaces:**
+
 - Consumes all interfaces from Tasks 1–6.
 - Produces CLI: `python benchmarks/cache/run_suite.py --config PATH [--dry-run] [--rebuild-report RUN_DIR] [--case-id ID ...]`.
 
@@ -1238,6 +1252,7 @@ git commit -m "feat: orchestrate cache benchmark suite"
 ### Task 8: Examples, Documentation, and Fake End-to-End Validation
 
 **Files:**
+
 - Create: `benchmarks/cache/README.md`
 - Create: `benchmarks/cache/configs/example-7b.yaml`
 - Create: `benchmarks/cache/configs/example-70b.yaml`
@@ -1245,6 +1260,7 @@ git commit -m "feat: orchestrate cache benchmark suite"
 - Modify: `benchmarks/cache/tests/test_run_suite.py`
 
 **Interfaces:**
+
 - Produces user-facing operating instructions and validated examples.
 
 - [ ] **Step 1: Add failing tests that load all examples**
@@ -1319,9 +1335,11 @@ git commit -m "docs: add cache benchmark examples"
 ### Task 9: Static Checks, Full Verification, and Review Preparation
 
 **Files:**
+
 - Modify only files created by Tasks 1–8 if verification finds defects.
 
 **Interfaces:**
+
 - Produces a verified implementation branch ready for code review.
 
 - [ ] **Step 1: Format and lint**

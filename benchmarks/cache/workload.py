@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import hashlib
@@ -18,9 +21,7 @@ class TokenizerProtocol(Protocol):
 
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]: ...
 
-    def decode(
-        self, token_ids: list[int], skip_special_tokens: bool = True
-    ) -> str: ...
+    def decode(self, token_ids: list[int], skip_special_tokens: bool = True) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,8 +46,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     content = "".join(
-        json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
-        for row in rows
+        json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows
     )
     _atomic_write_text(path, content)
 
@@ -68,9 +68,7 @@ def _generator_seed(config: SuiteConfig, case: ExecutionCase) -> int:
     identity = json.dumps(
         _workload_identity(case), sort_keys=True, separators=(",", ":")
     )
-    digest = hashlib.sha256(
-        f"{config.workload.seed}:{identity}".encode("utf-8")
-    ).digest()
+    digest = hashlib.sha256(f"{config.workload.seed}:{identity}".encode()).digest()
     return int.from_bytes(digest, byteorder="big")
 
 
@@ -98,9 +96,7 @@ def _next_suffix_length(
 
     if observed_suffix_length > 0 and current_suffix_length > 0:
         candidate = round(
-            current_suffix_length
-            * target_suffix_length
-            / observed_suffix_length
+            current_suffix_length * target_suffix_length / observed_suffix_length
         )
     elif observed_length < requested_length:
         candidate = current_suffix_length + 1
@@ -234,9 +230,10 @@ def _sample_prompt(
             continue
 
         encoded_tuple = tuple(encoded)
-        prefix_matches = required_encoded_prefix is None or tuple(
-            encoded[: len(required_encoded_prefix)]
-        ) == required_encoded_prefix
+        prefix_matches = (
+            required_encoded_prefix is None
+            or tuple(encoded[: len(required_encoded_prefix)]) == required_encoded_prefix
+        )
         is_unique = seen is None or encoded_tuple not in seen
         if not prefix_matches or not is_unique:
             candidate_suffix_length = target_suffix_length
