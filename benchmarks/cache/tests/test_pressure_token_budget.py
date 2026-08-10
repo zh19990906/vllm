@@ -129,12 +129,15 @@ def test_token_pressure_workload_is_identical_across_cache_modes(
 
     assert {case.cache_mode for case in _eviction_cases(config)} == set(CacheMode)
     assert len({artifact.measure_path.read_bytes() for artifact in artifacts}) == 1
-    assert len(
-        {
-            artifact.populate_path.read_bytes()
-            for artifact in artifacts
-            if artifact.populate_path is not None
-        }
-    ) == 1
+    assert (
+        len(
+            {
+                artifact.populate_path.read_bytes()
+                for artifact in artifacts
+                if artifact.populate_path is not None
+            }
+        )
+        == 1
+    )
     assert len({item["generator_seed"] for item in metadata}) == 1
     assert len({item["derived_pressure_fill_requests"] for item in metadata}) == 1
