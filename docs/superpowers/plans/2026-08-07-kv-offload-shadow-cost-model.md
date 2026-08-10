@@ -27,6 +27,7 @@
 ### Task 1: Pure Cost Model
 
 **Files:**
+
 - Create: `vllm/v1/kv_offload/cost_model.py`
 - Create: `tests/v1/kv_offload/test_cost_model.py`
 
@@ -243,6 +244,7 @@ git commit -m "feat: add KV offload shadow cost model"
 ### Task 2: Base and Tiering Spec Wiring
 
 **Files:**
+
 - Modify: `vllm/v1/kv_offload/base.py`
 - Modify: `vllm/v1/kv_offload/tiering/spec.py`
 - Create: `tests/v1/kv_offload/tiering/test_shadow_cost_spec.py`
@@ -362,6 +364,7 @@ git commit -m "feat: wire shadow cost model into tiering"
 ### Task 3: Tiering Provenance and Promotion Observation
 
 **Files:**
+
 - Modify: `vllm/v1/kv_offload/tiering/manager.py`
 - Create: `tests/v1/kv_offload/tiering/test_shadow_cost_provenance.py`
 
@@ -536,6 +539,7 @@ git commit -m "feat: track KV restore provenance"
 ### Task 4: Scheduler Shadow Hook and Metrics
 
 **Files:**
+
 - Modify: `vllm/distributed/kv_transfer/kv_connector/v1/offloading/metrics.py`
 - Modify: `vllm/distributed/kv_transfer/kv_connector/v1/offloading/scheduler.py`
 - Modify: `vllm/v1/kv_offload/tiering/manager.py`
