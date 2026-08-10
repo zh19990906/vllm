@@ -76,7 +76,7 @@ attempt bound. After stabilizing the suffix stream, the same test passed.
 Real-tokenizer preflight later accepted these observed windows:
 
 | Requested | Observed range |
-|---:|---:|
+| ---: | ---: |
 | 256 | 254-258 |
 | 512 | 510-514 |
 | 1024 | 1022-1026 |
