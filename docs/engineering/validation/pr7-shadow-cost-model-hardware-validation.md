@@ -53,7 +53,7 @@ See:
 The validation-only profile came from earlier cache crossover measurements:
 
 | Tokens | Recompute | FS restore | FS promotion |
-|---:|---:|---:|---:|
+| ---: | ---: | ---: | ---: |
 | 256 | 26.414 ms | 31.119 ms | 13.916 ms |
 | 512 | 44.961 ms | 56.979 ms | 35.230 ms |
 | 1024 | 81.705 ms | 108.132 ms | 81.458 ms |
@@ -243,7 +243,7 @@ use.
 ## Acceptance summary
 
 | Gate | Result |
-|---|---|
+| --- | --- |
 | CPU-primary 1024 predicts restore | PASS |
 | CPU-primary actual path remains restore | PASS |
 | Filesystem 1024 predicts recompute | PASS |
