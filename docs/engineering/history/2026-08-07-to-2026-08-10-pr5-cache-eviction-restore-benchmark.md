@@ -124,7 +124,7 @@ stabilizing the suffix token stream during length correction.
 Later real-tokenizer preflight accepted small observed windows around requested sizes:
 
 | Requested | Observed range |
-|---:|---:|
+| ---: | ---: |
 | 256 | 254-258 |
 | 512 | 510-514 |
 | 1024 | 1022-1026 |
@@ -141,7 +141,7 @@ restoring its KV from the filesystem secondary tier on the validation machine.
 The measured seed values were:
 
 | Prompt tokens | Recompute P95 TTFT | Filesystem restore P95 TTFT |
-|---:|---:|---:|
+| ---: | ---: | ---: |
 | 256 | 26.414 ms | 31.119 ms |
 | 512 | 44.961 ms | 56.979 ms |
 | 1024 | 81.705 ms | 108.132 ms |
