@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import json
@@ -5,10 +8,10 @@ import statistics
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 import psutil
 import requests
@@ -63,7 +66,7 @@ def _sample_key(name: str, labels: dict[str, str]) -> str:
     if not labels:
         return name
     rendered = ",".join(
-        f'{key}={json.dumps(str(value), ensure_ascii=True)}'
+        f"{key}={json.dumps(str(value), ensure_ascii=True)}"
         for key, value in sorted(labels.items())
     )
     return f"{name}{{{rendered}}}"
@@ -83,9 +86,7 @@ def parse_prometheus_text(text: str) -> PrometheusSnapshot:
                 sample_name = family.name
             if not sample_name.startswith("vllm:"):
                 continue
-            samples[_sample_key(sample_name, dict(sample.labels))] = float(
-                sample.value
-            )
+            samples[_sample_key(sample_name, dict(sample.labels))] = float(sample.value)
     return PrometheusSnapshot(fetched_at=_utc_now(), samples=samples, raw_text=text)
 
 
@@ -176,14 +177,12 @@ def _selected_delta(
     sum_values = [
         item["value"]
         for key, item in delta.items()
-        if _base_sample_name(key) == f"{base_name}_sum"
-        and item["value"] is not None
+        if _base_sample_name(key) == f"{base_name}_sum" and item["value"] is not None
     ]
     count_values = [
         item["value"]
         for key, item in delta.items()
-        if _base_sample_name(key) == f"{base_name}_count"
-        and item["value"] is not None
+        if _base_sample_name(key) == f"{base_name}_count" and item["value"] is not None
     ]
     if sum_values or count_values:
         total_sum = float(sum(sum_values)) if sum_values else None
@@ -261,9 +260,7 @@ def normalize_native_result(
         else {}
     )
     cache: dict[str, object] = {
-        "prefix_cache_hits_tokens": _prefix_delta(
-            before, after, PREFIX_HIT_CANDIDATES
-        ),
+        "prefix_cache_hits_tokens": _prefix_delta(before, after, PREFIX_HIT_CANDIDATES),
         "prefix_cache_query_tokens": _prefix_delta(
             before, after, PREFIX_QUERY_CANDIDATES
         ),
@@ -276,7 +273,9 @@ def normalize_native_result(
         "after": after.samples if after is not None else None,
         "delta": delta if delta else None,
         "unavailable_reason": (
-            None if before is not None and after is not None else "metrics_not_collected"
+            None
+            if before is not None and after is not None
+            else "metrics_not_collected"
         ),
     }
     return {"benchmark": benchmark, "cache": cache, "prometheus": prometheus}

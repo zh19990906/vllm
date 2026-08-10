@@ -22,10 +22,12 @@
 ### Task 1: Validate population native results before measurement
 
 **Files:**
+
 - Modify: `benchmarks/cache/tests/test_run_suite.py`
 - Modify: `benchmarks/cache/run_suite.py`
 
 **Interfaces:**
+
 - Consumes: `population_result_path: Path`, `expected_count: int`, and the existing `BenchmarkExecutionError`.
 - Produces: `_ensure_population_result_success(path: Path, expected_count: int) -> None`.
 

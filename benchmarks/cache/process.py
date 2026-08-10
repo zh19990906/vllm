@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import contextlib
@@ -97,9 +100,10 @@ def run_command(
     timed_out = False
     returncode: int | None
 
-    with stdout_path.open("wb") as stdout_handle, stderr_path.open(
-        "wb"
-    ) as stderr_handle:
+    with (
+        stdout_path.open("wb") as stdout_handle,
+        stderr_path.open("wb") as stderr_handle,
+    ):
         process = subprocess.Popen(
             command,
             env=env,

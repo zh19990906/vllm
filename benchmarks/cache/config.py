@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -108,9 +111,12 @@ class WorkloadConfig(StrictModel):
             return values
         normalized: list[object] = []
         for value in values:
-            if isinstance(value, str) and value.lower() == "inf":
-                normalized.append("inf")
-            elif isinstance(value, (int, float)) and value == float("inf"):
+            if (
+                isinstance(value, str)
+                and value.lower() == "inf"
+                or isinstance(value, (int, float))
+                and value == float("inf")
+            ):
                 normalized.append("inf")
             else:
                 normalized.append(value)
@@ -142,7 +148,7 @@ class SuiteConfig(StrictModel):
     results: ResultsConfig
 
     @model_validator(mode="after")
-    def validate_non_empty_axes(self) -> "SuiteConfig":
+    def validate_non_empty_axes(self) -> SuiteConfig:
         for name in (
             "prompt_tokens",
             "concurrency",
@@ -204,7 +210,9 @@ def sanitize_environment(env: Mapping[str, str]) -> dict[str, str]:
 def _resolved_owned_child(path: Path, root: Path) -> tuple[Path, Path]:
     resolved_root = root.expanduser().resolve()
     resolved_path = path.expanduser().resolve()
-    if resolved_path == resolved_root or not resolved_path.is_relative_to(resolved_root):
+    if resolved_path == resolved_root or not resolved_path.is_relative_to(
+        resolved_root
+    ):
         raise ValueError(f"path must be below configured root: {resolved_root}")
     return resolved_path, resolved_root
 

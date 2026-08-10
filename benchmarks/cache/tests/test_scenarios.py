@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from __future__ import annotations
 
 import json
@@ -77,14 +80,14 @@ def test_restart_persistence_exists_only_for_tiered_fs(
 ) -> None:
     cases = build_execution_cases(suite_config, tmp_path)
     restart_modes = {
-        case.cache_mode
-        for case in cases
-        if case.workload_kind == "restart-persistence"
+        case.cache_mode for case in cases if case.workload_kind == "restart-persistence"
     }
     assert restart_modes == {CacheMode.TIERED_FS}
 
 
-def test_shared_prefix_expands_only_positive_ratios(suite_config, tmp_path: Path) -> None:
+def test_shared_prefix_expands_only_positive_ratios(
+    suite_config, tmp_path: Path
+) -> None:
     cases = build_execution_cases(suite_config, tmp_path)
     ratios = {
         case.prefix_ratio
