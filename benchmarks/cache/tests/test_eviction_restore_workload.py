@@ -61,10 +61,14 @@ def test_pressure_workload_expands_all_cache_modes(valid_config_dict: dict) -> N
     assert {case.cache_mode for case in cases} == set(CacheMode)
 
 
-def test_pressure_population_puts_fillers_after_victims(valid_config_dict: dict) -> None:
+def test_pressure_population_puts_fillers_after_victims(
+    valid_config_dict: dict,
+) -> None:
     config = _pressure_config(valid_config_dict, fill_requests=5)
     case = next(
-        case for case in _pressure_cases(config) if case.cache_mode is CacheMode.NO_CACHE
+        case
+        for case in _pressure_cases(config)
+        if case.cache_mode is CacheMode.NO_CACHE
     )
 
     artifacts = generate_workload(case, config, FakeTokenizer())
@@ -98,10 +102,13 @@ def test_pressure_workload_is_identical_across_cache_modes(
     ]
 
     assert len({artifact.measure_path.read_bytes() for artifact in artifacts}) == 1
-    assert len(
-        {
-            artifact.populate_path.read_bytes()
-            for artifact in artifacts
-            if artifact.populate_path is not None
-        }
-    ) == 1
+    assert (
+        len(
+            {
+                artifact.populate_path.read_bytes()
+                for artifact in artifacts
+                if artifact.populate_path is not None
+            }
+        )
+        == 1
+    )
