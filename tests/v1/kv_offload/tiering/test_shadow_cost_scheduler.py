@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# mypy: disable-error-code="attr-defined"
 
 import importlib.util
 import sys
@@ -12,7 +13,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 def _package(name: str) -> ModuleType:
     module = ModuleType(name)
-    module.__path__ = []  # type: ignore[attr-defined]
+    module.__path__ = []
     sys.modules[name] = module
     return module
 
@@ -104,8 +105,8 @@ def _install_stubs() -> tuple[ModuleType, ModuleType, ModuleType]:
 
     class _KVConnectorPromMetrics:
         def __init__(self, *args, **kwargs) -> None:
-            self._labelnames = []
-            self.per_engine_labelvalues = {}
+            self._labelnames: list[str] = []
+            self.per_engine_labelvalues: dict[str, str] = {}
 
     connector_metrics.KVConnectorStats = _KVConnectorStats
     connector_metrics.KVConnectorPromMetrics = _KVConnectorPromMetrics
@@ -256,11 +257,11 @@ class FakeManager:
 class ReqStatus:
     def __init__(self, keys) -> None:
         self.group_states = [SimpleNamespace(block_ids=[], offload_keys=list(keys))]
-        self.transfer_jobs = set()
+        self.transfer_jobs: set[object] = set()
         self.num_locally_computed_tokens = 0
         self.deferred_lookup_start_time = None
         self.req_context = ReqContext("r")
-        self.updated_hit_tokens = None
+        self.updated_hit_tokens: int | None = None
 
     def update_offload_keys(self) -> None:
         pass
