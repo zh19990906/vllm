@@ -5,6 +5,7 @@ import importlib.util
 import math
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -209,7 +210,7 @@ def test_invalid_curve_samples_raise_value_error(raw: dict) -> None:
         CostCurve.from_mapping(raw)
 
 
-def _profile_model() -> object:
+def _profile_model() -> Any:
     model = OffloadCostModel.from_extra_config(PROFILE)
     assert model is not None
     return model
