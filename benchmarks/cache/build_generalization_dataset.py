@@ -379,6 +379,12 @@ def _build_sample(
     sample = {
         "source": source,
         "requested_tokens": int(recompute_record["prompt_tokens"]),
+        "provenance": {
+            "recompute_run_directory": str(recompute_run),
+            "recompute_case_id": str(recompute_record["case_id"]),
+            "restore_run_directory": str(restore_run),
+            "restore_case_id": str(restore_record["case_id"]),
+        },
         "external_kv_tokens_total": external_total,
         "external_kv_tokens_per_request": (external_total // requests_per_case),
         "latency_ms": {

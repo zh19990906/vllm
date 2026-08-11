@@ -936,6 +936,46 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             "kv_offload_allocation_failure",
         )
 
+    def test_samples_preserve_per_sample_run_and_case_provenance(self) -> None:
+        from benchmarks.cache.build_generalization_dataset import (
+            build_generalization_dataset,
+        )
+
+        with TemporaryDirectory() as tmp:
+            recompute, cpu, filesystem = _build_three_runs(Path(tmp))
+
+            result = build_generalization_dataset(
+                condition_id="c-model",
+                recompute_run=recompute,
+                cpu_run=cpu,
+                filesystem_run=filesystem,
+                percentile="p95",
+            )
+
+        by_source = {row["source"]: row for row in result["samples"]}
+        cpu_sample = by_source["cpu_primary"]
+        fs_sample = by_source["secondary:filesystem"]
+
+        self.assertEqual(
+            cpu_sample["provenance"]["recompute_run_directory"],
+            str(recompute),
+        )
+        self.assertEqual(
+            cpu_sample["provenance"]["restore_run_directory"],
+            str(cpu),
+        )
+        self.assertEqual(
+            fs_sample["provenance"]["restore_run_directory"],
+            str(filesystem),
+        )
+
+        for sample in (cpu_sample, fs_sample):
+            provenance = sample["provenance"]
+            self.assertIsInstance(provenance["recompute_case_id"], str)
+            self.assertTrue(provenance["recompute_case_id"])
+            self.assertIsInstance(provenance["restore_case_id"], str)
+            self.assertTrue(provenance["restore_case_id"])
+
     def test_non_divisible_external_tokens_hard_fail(self) -> None:
         from benchmarks.cache.build_generalization_dataset import (
             build_generalization_dataset,
