@@ -45,7 +45,7 @@ vllm = "vllm.entrypoints.cli.main:main"
 
 [project.entry-points."vllm.general_plugins"]
 lora_filesystem_resolver = "vllm.plugins.lora_resolvers.filesystem_resolver:register_filesystem_resolver"
-lora_hf_hub_resolver = "vllm.plugins.lora_resolvers.hf_hub_resolver:register_hf_hub_resolver"
+lora_hf_hub_resolver = "vllm.plugins.lora_resolvers.hf_hub_resolver:register_filesystem_resolver"
 
 [tool.setuptools_scm]
 # no extra settings needed, presence enables setuptools-scm
@@ -156,6 +156,8 @@ view_seperator = "view_seperator"
 inverse_std_variences = "inverse_std_variences"
 
 [tool.typos.default.extend-words]
+MAPE = "MAPE"
+mape = "mape"
 iy = "iy"
 indx = "indx"
 # intel cpu features
