@@ -9,10 +9,12 @@ before acting if this file is older than the current session.
 
 - Repository: `zh19990906/vllm`
 - Default branch: `main`
-- Current observed `main` head:
-  `eae9e8b5803d2770a719a43b0020da0c275095e0`
-- That commit merged PR #27, which preserved the useful point-in-time history from
-  superseded PR #22 without merging its stale mutable roadmap state.
+- This refresh was prepared from
+  `main@eae9e8b5803d2770a719a43b0020da0c275095e0`, immediately after PR #27 merged.
+- Do not treat that snapshot SHA as a permanently current branch head. Updating this file
+  creates newer commits; live GitHub metadata remains authoritative for the actual head.
+- PR #27 preserved the useful point-in-time history from superseded PR #22 without merging
+  its stale mutable roadmap state.
 - GitHub is the authoritative remote. The observed development workflow synchronizes
   GitHub branches/tags to a Gitee mirror used by Pod workspaces.
 - Pod workspaces are for build/test/hardware validation and are not an authoritative
