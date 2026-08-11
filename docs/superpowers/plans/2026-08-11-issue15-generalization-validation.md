@@ -2,95 +2,73 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Produce fixed-profile holdout evidence for the Issue #14 KV restore/recompute cost model under one materially contended 7B load condition and one Qwen2.5-14B model-scale condition, then classify each curve as transferable, scale-sensitive, or shape/missing-feature limited without changing active runtime behavior.
+**Goal:** Produce fixed-profile holdout evidence for the Issue #14 KV restore/recompute cost model under one materially contended 7B load condition and one Qwen2.5-14B model-scale condition, then classify each principal curve as transferable, environment-scale-sensitive, or shape/missing-feature limited without changing active runtime behavior.
 
-**Architecture:** Keep the Issue #14 calibration path unchanged. Add a separate pure generalization module and CLI that consume a frozen Issue #14 profile plus a condition dataset. Add a dataset builder that converts existing cache-benchmark run artifacts into the stable Issue #15 measurement schema with explicit restore provenance. Hardware execution remains shadow-only and uses the existing `benchmarks/cache/run_suite.py` workload/metrics pipeline.
+**Architecture:** Keep the Issue #14 calibration CLI unchanged. Add a separate pure generalization module and CLI that evaluate a supplied frozen Issue #14 profile against a structured condition dataset. Add a dataset builder that converts existing `run_suite.py` artifacts into the Issue #15 schema with explicit workload fairness and restore provenance. Hardware execution remains shadow-only and uses the existing cache benchmark stack.
 
-**Tech Stack:** Python 3.11, stdlib `dataclasses`/`json`/`statistics`, existing vLLM `OffloadCostModel`, existing cache benchmark YAML/Pydantic configuration, stdlib `unittest` for Pod-local TDD, GitHub repository-wide pre-commit as authoritative CI.
+**Tech Stack:** Python 3.11, stdlib `dataclasses`/`json`/`statistics`/`unittest`, existing `benchmarks.cache.cost_model_calibration` primitives, existing `vllm.v1.kv_offload.cost_model.OffloadCostModel`, existing cache benchmark YAML/Pydantic pipeline, GitHub repository-wide pre-commit as authoritative CI.
 
 ## Global Constraints
 
-- GitHub is the authoritative remote and write path; the Pod is only for build, focused tests, benchmark, and hardware validation.
-- Do not run `git push` from the Pod.
-- Do not use `git clean -fd`, `reset --hard`, or checkout operations that can remove the three intentional untracked local YAML files in `/code/vllm`.
-- Do not install pytest merely for this work. New focused tests must be runnable with stdlib `unittest` on the Pod; repository CI may also collect them through pytest.
-- Issue #15 remains shadow-only. Do not modify scheduler enforcement, matched-token behavior, transfer scheduling, cache contents, or active restore/recompute selection.
+- GitHub is the authoritative remote and write path; the Pod is for build, focused tests, benchmark, and hardware validation.
+- Never run `git push` from the Pod.
+- Never use `git clean -fd`, `reset --hard`, or a checkout operation that can remove the three intentional untracked local YAML files under `/code/vllm/benchmarks/cache/configs/`.
+- Do not install pytest for this work. New focused tests must run with stdlib `unittest`; GitHub CI may also collect them through pytest if the workflow does so.
+- Issue #15 remains shadow-only. Do not change scheduler enforcement, matched-token behavior, transfer scheduling, cache contents, or active restore/recompute selection.
 - Primary percentile is P95.
-- Primary evidence is evaluation of the frozen Issue #14 calibrated profile. New-condition data must be saved before any diagnostic scaling.
+- Primary evidence is the frozen Issue #14 calibrated profile evaluated on new-condition data saved before any diagnostic scaling.
 - Requested prompt tokens are workload anchors only. Evaluation uses runtime external KV tokens per request.
 - Formal requested-token anchors are exactly `128, 192, 256, 1024, 4096` unless a material deviation is first recorded on Issue #15.
 - C-load probes concurrency exactly `2 -> 4 -> 8` against a same-session C1 sentinel at 1024 requested tokens and stops at the first materially contended load.
-- Material contention means one principal P95 path changes by at least 20%, another by at least 10%, and required restore provenance remains valid.
+- Material contention means one principal P95 path changes by at least 20%, another principal path changes by at least 10%, and required restore provenance remains valid.
 - Fixed-profile transfer requires valid high-confidence evidence for all three principal curves, decision accuracy >= 95%, principal macro-MAPE <= 15%, no principal curve MAPE > 20%, and no wrong high-confidence decision with absolute actual margin > 1 ms.
-- If any principal curve lacks valid high-confidence formal evidence, classify the condition `insufficient_evidence`; do not call it transfer pass.
-- Low-confidence samples remain evidence but do not expand Issue #16 eligibility.
-- Diagnostic scale is exactly one multiplicative scalar per curve: median of `actual_latency / frozen_predicted_latency`.
-- Do not call container-local filesystem evidence physical NVMe unless provenance proves it.
-- Do not start Issue #16 active enforcement while #15 evidence is incomplete.
-- Any material experiment interpretation change must be commented on Issue #15 before measurements use the changed condition.
+- If any principal curve lacks valid high-confidence formal evidence, classify the condition `insufficient_evidence`.
+- Low-confidence samples remain evidence but never expand Issue #16 eligibility.
+- Diagnostic scale is one multiplicative scalar per curve: median of `actual_latency / frozen_predicted_latency`.
+- Container-local filesystem evidence remains `filesystem` / `tiered-fs` unless physical device provenance proves a stronger claim.
+- Material experiment-interpretation changes must be commented on Issue #15 before measurements use the changed condition.
+- A green PR never implies merge authorization; request fresh explicit authorization before merge.
 
 ---
 
 ## File Structure
 
-Implementation should keep responsibilities separated as follows:
+- Create `benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json`: immutable profile copied programmatically from the checked-in Issue #14 `calibrated_profile` field.
+- Create `benchmarks/cache/cost_model_generalization.py`: condition loader, frozen evaluation, high-confidence gate, low-confidence partition, one-scalar diagnostics.
+- Create `benchmarks/cache/evaluate_cost_model_generalization.py`: deterministic frozen-profile CLI; never derives a new profile.
+- Create `benchmarks/cache/build_generalization_dataset.py`: converts run-suite artifacts into the condition JSON and validates workload/restore provenance.
+- Create `benchmarks/cache/tests/test_cost_model_generalization.py`: stdlib tests for profile fidelity, loading, frozen evaluation, gate semantics, diagnostics, and CLI determinism.
+- Create `benchmarks/cache/tests/test_build_generalization_dataset.py`: stdlib tests for run pairing and provenance validation.
+- Create four config templates:
+  - `benchmarks/cache/configs/issue15-7b-load-sentinel-cpu.yaml`
+  - `benchmarks/cache/configs/issue15-7b-load-sentinel-fs.yaml`
+  - `benchmarks/cache/configs/issue15-14b-formal-cpu.yaml`
+  - `benchmarks/cache/configs/issue15-14b-formal-fs.yaml`
+- Create final evidence:
+  - `docs/engineering/validation/2026-08-11-issue15-generalization-validation.json`
+  - `docs/engineering/validation/2026-08-11-issue15-generalization-validation.md`
+  - `docs/engineering/handoffs/2026-08-11-issue16-active-decision-handoff.md`
+- Update `docs/engineering/CURRENT_STATE.md` and, if needed for indexing, `docs/engineering/README.md` only after complete evidence exists.
 
-- `benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json`
-  - immutable frozen-profile artifact extracted byte-for-value from the checked-in Issue #14 calibration result;
-  - contains profile provenance and a top-level `cache_cost_model` mapping accepted by existing `load_profile_artifact()`.
-- `benchmarks/cache/cost_model_generalization.py`
-  - pure Issue #15 dataset loading, frozen-profile evaluation, fixed transfer gate, low-confidence partitioning, and one-scalar failure diagnostics;
-  - no benchmark process execution and no active runtime changes.
-- `benchmarks/cache/evaluate_cost_model_generalization.py`
-  - deterministic CLI wrapper around the pure module;
-  - never derives or mutates a profile from the new-condition dataset.
-- `benchmarks/cache/build_generalization_dataset.py`
-  - converts completed `run_suite.py` artifacts into the Issue #15 condition schema;
-  - validates workload identity and restore provenance before accepting samples.
-- `benchmarks/cache/tests/test_cost_model_generalization.py`
-  - stdlib `unittest` coverage for frozen evaluation, high/low-confidence gate semantics, insufficient evidence, and scale/shape classification.
-- `benchmarks/cache/tests/test_build_generalization_dataset.py`
-  - stdlib `unittest` coverage for run pairing, workload SHA fairness, external-token normalization, CPU transfer evidence, filesystem lookup evidence, and invalid-sample recording.
-- `benchmarks/cache/configs/issue15-7b-load-sentinel-cpu.yaml`
-  - 1024-token, C1/C2/C4/C8 CPU-primary provenance sentinel template with 8 GiB CPU tier.
-- `benchmarks/cache/configs/issue15-7b-load-sentinel-fs.yaml`
-  - 1024-token, C1/C2/C4/C8 lower-tier filesystem sentinel template with 2 GiB CPU tier.
-- `benchmarks/cache/configs/issue15-14b-formal-cpu.yaml`
-  - 14B/C1 formal-anchor CPU-primary template, initially 8 GiB CPU tier; provenance preflight decides whether a capacity adjustment is required before formal measurement.
-- `benchmarks/cache/configs/issue15-14b-formal-fs.yaml`
-  - 14B/C1 formal-anchor lower-tier filesystem template with 2 GiB CPU tier.
-- `docs/engineering/validation/2026-08-11-issue15-generalization-validation.json`
-  - checked-in machine-readable final results and classifications.
-- `docs/engineering/validation/2026-08-11-issue15-generalization-validation.md`
-  - concise interpretation, failure boundaries, transferable/environment-specific parameters, and Issue #16 eligibility map.
-- `docs/engineering/handoffs/2026-08-11-issue16-active-decision-handoff.md`
-  - only created when #15 evidence is complete; states where active-decision design may and may not proceed.
-
-Do not modify `vllm/v1/kv_offload/cost_model.py` unless a test proves the pure evaluator cannot reuse its existing public API. The expected path is no runtime-file change.
+Expected implementation scope has no change under `vllm/v1/kv_offload/` or any active scheduler/inference path.
 
 ---
 
-### Task 1: Create an isolated Issue #15 Pod worktree without touching preserved local YAML
+### Task 1: Create a safe isolated Pod worktree
 
-**Files:**
-- No repository file changes.
-- Worktree target: `/code/vllm-worktrees/issue15-generalization-validation`
+**Files:** No repository changes.
 
 **Interfaces:**
-- Consumes: live GitHub `main` SHA re-verified immediately before execution.
-- Produces: isolated Pod worktree based on the mirror commit that exactly matches live GitHub `main`.
+- Consumes: live GitHub `main` SHA re-verified at execution time.
+- Produces: `/code/vllm-worktrees/issue15-generalization-validation` based on a Pod mirror SHA exactly matching live GitHub `main`.
 
-- [ ] **Step 1: Invoke the worktree skill before touching the Pod checkout**
+- [ ] **Step 1: Invoke `superpowers:using-git-worktrees` before Pod repository operations.**
 
-Read `superpowers:using-git-worktrees` and follow its isolation/safety checks. Do not reuse the current `feature/cache-eviction-restore-benchmark` checkout as the implementation worktree.
+- [ ] **Step 2: Re-read live GitHub `main` and record its SHA.**
 
-- [ ] **Step 2: Re-verify live GitHub main and record the expected SHA**
+Do not reuse the design-time SHA as an assumption.
 
-At execution time, query GitHub again. Do not assume the design-time `b43b3d83048f55f00f85e3e7d230d1b98c25b4f9` is still current.
-
-- [ ] **Step 3: On the Pod, verify the preserved files before any fetch/worktree operation**
-
-Run a single compact block equivalent to:
+- [ ] **Step 3: Verify the three preserved local YAML files and current checkout without modifying it.**
 
 ```bash
 cd /code/vllm || exit 1
@@ -106,11 +84,9 @@ done
 git status --short --branch
 ```
 
-Expected: all three local YAML files remain present and untracked.
+Expected: all three files are present and untracked.
 
-- [ ] **Step 4: Fetch the Pod mirror without changing the current worktree**
-
-Use the configured Pod remote only. Fetching is allowed; pushing is not.
+- [ ] **Step 4: Fetch only the Pod mirror ref; do not checkout or reset the old worktree.**
 
 ```bash
 cd /code/vllm || exit 1
@@ -118,11 +94,9 @@ git fetch origin main
 printf 'origin/main='; git rev-parse origin/main
 ```
 
-Compare `origin/main` to the live GitHub SHA from Step 2. If they differ, stop execution and record the mirror mismatch; do not build a worktree from stale code.
+Compare the printed SHA to live GitHub. If they differ, stop execution and record a mirror-sync mismatch.
 
-- [ ] **Step 5: Create the isolated worktree from the verified mirror SHA**
-
-Use a fresh local branch name and never checkout the old `/code/vllm` worktree:
+- [ ] **Step 5: Create the fresh worktree from verified `origin/main`.**
 
 ```bash
 cd /code/vllm || exit 1
@@ -135,7 +109,7 @@ printf 'head='; git rev-parse HEAD
 git status --short --branch
 ```
 
-Expected: clean new worktree at the verified `origin/main` SHA.
+Expected: clean isolated worktree at the verified SHA.
 
 ---
 
@@ -143,15 +117,13 @@ Expected: clean new worktree at the verified `origin/main` SHA.
 
 **Files:**
 - Create: `benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json`
-- Test: `benchmarks/cache/tests/test_cost_model_generalization.py`
+- Create: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
-- Consumes: `docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json["calibrated_profile"]` and existing `load_profile_artifact(path)`.
-- Produces: a profile artifact whose `cache_cost_model` mapping is exactly equal to the checked-in Issue #14 `calibrated_profile` mapping.
+- Consumes: `docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json["calibrated_profile"]`.
+- Produces: a top-level `cache_cost_model` mapping accepted by existing `load_profile_artifact()` and exactly equal to the source calibration result.
 
-- [ ] **Step 1: Write the failing frozen-profile fidelity test**
-
-Create a stdlib test module beginning with:
+- [ ] **Step 1: Write the RED fidelity test.**
 
 ```python
 import json
@@ -160,65 +132,78 @@ from pathlib import Path
 
 from benchmarks.cache.cost_model_calibration import load_profile_artifact
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class FrozenProfileArtifactTests(unittest.TestCase):
     def test_issue14_frozen_profile_matches_calibration_result(self) -> None:
-        result = json.loads(
-            (_REPO_ROOT / "docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json")
-            .read_text(encoding="utf-8")
+        source_path = _REPO_ROOT / (
+            "docs/engineering/validation/"
+            "2026-08-10-issue14-shadow-cost-model-calibration.json"
         )
-        artifact_path = (
-            _REPO_ROOT / "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json"
+        profile_path = _REPO_ROOT / (
+            "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json"
         )
-        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-
-        self.assertEqual(artifact["cache_cost_model"], result["calibrated_profile"])
-        self.assertEqual(load_profile_artifact(artifact_path), result["calibrated_profile"])
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        artifact = json.loads(profile_path.read_text(encoding="utf-8"))
+        self.assertEqual(artifact["cache_cost_model"], source["calibrated_profile"])
+        self.assertEqual(load_profile_artifact(profile_path), source["calibrated_profile"])
         self.assertEqual(artifact["provenance"]["issue"], 14)
         self.assertEqual(artifact["provenance"]["profile_role"], "frozen_holdout_seed")
 ```
 
-- [ ] **Step 2: Run the test to verify RED without pytest**
+- [ ] **Step 2: Run RED without pytest.**
 
 ```bash
 python -m unittest discover -s benchmarks/cache/tests \
   -p 'test_cost_model_generalization.py' -v
 ```
 
-Expected: ERROR because `issue14-shadow-cost-calibrated.json` does not exist.
+Expected: error because the frozen profile file does not exist.
 
-- [ ] **Step 3: Create the frozen artifact by exact extraction, not manual retyping**
+- [ ] **Step 3: Generate the artifact programmatically.**
 
-Use a one-shot Python command in the worktree to read the calibration result and write:
-
-```json
-{
-  "schema_version": 1,
-  "name": "issue14-shadow-cost-calibrated",
-  "provenance": {
-    "issue": 14,
-    "profile_role": "frozen_holdout_seed",
-    "source_artifact": "docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json",
-    "source_field": "calibrated_profile",
-    "percentile": "p95",
-    "note": "Frozen Issue #14 shadow profile for Issue #15 holdout evaluation; not a production default."
-  },
-  "cache_cost_model": { ...exact calibrated_profile mapping... }
-}
-```
-
-The script must use `json.dumps(..., indent=2, sort_keys=True) + "\n"` and must copy the mapping from the source JSON programmatically.
-
-- [ ] **Step 4: Run the focused test to verify GREEN**
-
-Run the same `unittest discover` command. Expected: PASS for the fidelity test.
-
-- [ ] **Step 5: Commit the artifact and initial test locally**
+Run this exact repository-local script:
 
 ```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+source_path = Path(
+    'docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json'
+)
+out_path = Path('benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json')
+source = json.loads(source_path.read_text(encoding='utf-8'))
+payload = {
+    'schema_version': 1,
+    'name': 'issue14-shadow-cost-calibrated',
+    'provenance': {
+        'issue': 14,
+        'profile_role': 'frozen_holdout_seed',
+        'source_artifact': str(source_path),
+        'source_field': 'calibrated_profile',
+        'percentile': 'p95',
+        'note': (
+            'Frozen Issue #14 shadow profile for Issue #15 holdout evaluation; '
+            'not a production default.'
+        ),
+    },
+    'cache_cost_model': source['calibrated_profile'],
+}
+out_path.write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + '\n',
+    encoding='utf-8',
+)
+print(out_path)
+PY
+```
+
+- [ ] **Step 4: Run GREEN and commit locally.**
+
+```bash
+python -m unittest discover -s benchmarks/cache/tests \
+  -p 'test_cost_model_generalization.py' -v
 git add benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json \
   benchmarks/cache/tests/test_cost_model_generalization.py
 git commit -m "test: freeze issue 14 cost profile for holdout"
@@ -226,99 +211,91 @@ git commit -m "test: freeze issue 14 cost profile for holdout"
 
 ---
 
-### Task 3: Add a neutral Issue #15 condition dataset loader
+### Task 3: Add a neutral Issue #15 condition loader
 
 **Files:**
 - Create: `benchmarks/cache/cost_model_generalization.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
-- Consumes: Issue #15 condition JSON with condition metadata plus per-source rows.
-- Produces:
-  - `GeneralizationCondition`
-  - `load_generalization_condition(path: Path, percentile: str = "p95") -> GeneralizationCondition`
-  - an embedded existing `CalibrationDataset` compatible with the existing pure cost evaluator.
+- Produces `GeneralizationCondition` and `load_generalization_condition(path: Path, percentile: str = "p95")`.
+- Reuses existing `DecisionSample` and `CalibrationDataset` rather than changing #14 calibration semantics.
 
-- [ ] **Step 1: Write failing tests for runtime-token normalization and metadata retention**
+- [ ] **Step 1: Add a RED loader test with a complete two-source fixture.**
 
-Add tests using `tempfile.TemporaryDirectory()` and an input shaped exactly like:
+The fixture must contain condition metadata plus two rows at requested 256, one `cpu_primary` and one `secondary:filesystem`, with:
 
 ```python
-payload = {
-    "schema_version": 1,
-    "issue": 15,
-    "condition": {
-        "id": "c-model",
-        "model": "/mnt/model/Qwen2.5-14B-Instruct",
-        "served_model": "qwen2.5-14b",
-        "concurrency": 1,
-        "request_rate": "inf",
-        "requests_per_case": 8,
-        "tensor_parallel_size": 1,
-        "gpu_uuid": "GPU-test",
-        "environment_artifact": "/code/results/cache/run/environment.json",
-        "run_directories": {
-            "recompute": "/code/results/cache/recompute",
-            "cpu_primary": "/code/results/cache/cpu",
-            "secondary_filesystem": "/code/results/cache/fs",
+fixture = {
+    'schema_version': 1,
+    'issue': 15,
+    'condition': {
+        'id': 'c-model',
+        'model': '/mnt/model/Qwen2.5-14B-Instruct',
+        'served_model': 'qwen2.5-14b',
+        'concurrency': 1,
+        'request_rate': 'inf',
+        'requests_per_case': 8,
+        'tensor_parallel_size': 1,
+        'gpu_uuid': 'GPU-test',
+        'environment_artifact': '/code/results/cache/run/environment.json',
+        'run_directories': {
+            'recompute': '/code/results/cache/recompute',
+            'cpu_primary': '/code/results/cache/cpu',
+            'secondary_filesystem': '/code/results/cache/fs',
         },
     },
-    "samples": [
+    'samples': [
         {
-            "source": "cpu_primary",
-            "requested_tokens": 256,
-            "external_kv_tokens_total": 1856,
-            "external_tokens_per_request": 232,
-            "recompute_ttft_ms": {"p95": 30.0},
-            "restore_ttft_ms": {"p95": 24.0},
-            "transfer_evidence": {
-                "cpu_to_gpu_transfers": 8,
-                "cpu_to_gpu_bytes": 1000,
-                "tiered_fs_async_lookups": 0,
+            'source': 'cpu_primary',
+            'requested_tokens': 256,
+            'external_kv_tokens_total': 1856,
+            'external_tokens_per_request': 232,
+            'recompute_ttft_ms': {'p95': 30.0},
+            'restore_ttft_ms': {'p95': 24.0},
+            'transfer_evidence': {
+                'cpu_to_gpu_transfers': 8,
+                'cpu_to_gpu_bytes': 1000,
+                'tiered_fs_async_lookups': 0,
             },
-            "workload": {"measure_sha256": "a", "populate_sha256": "b"},
+            'workload': {'measure_sha256': 'a', 'populate_sha256': 'b'},
         },
         {
-            "source": "secondary:filesystem",
-            "requested_tokens": 256,
-            "external_kv_tokens_total": 1856,
-            "external_tokens_per_request": 232,
-            "recompute_ttft_ms": {"p95": 30.0},
-            "restore_ttft_ms": {"p95": 40.0},
-            "transfer_evidence": {
-                "cpu_to_gpu_transfers": 8,
-                "cpu_to_gpu_bytes": 1000,
-                "tiered_fs_async_lookups": 8,
+            'source': 'secondary:filesystem',
+            'requested_tokens': 256,
+            'external_kv_tokens_total': 1856,
+            'external_tokens_per_request': 232,
+            'recompute_ttft_ms': {'p95': 30.0},
+            'restore_ttft_ms': {'p95': 40.0},
+            'transfer_evidence': {
+                'cpu_to_gpu_transfers': 8,
+                'cpu_to_gpu_bytes': 1000,
+                'tiered_fs_async_lookups': 8,
             },
-            "workload": {"measure_sha256": "a", "populate_sha256": "b"},
+            'workload': {'measure_sha256': 'a', 'populate_sha256': 'b'},
         },
     ],
-    "excluded_samples": [],
+    'excluded_samples': [],
 }
 ```
 
-Assertions must verify:
+Assert model/concurrency metadata and that the internal decision samples use `external_tokens == 232`. Add a second test that changes total external tokens to 1857 and expects `ValueError`.
+
+- [ ] **Step 2: Run RED.**
+
+Expected: import failure because the module does not exist.
+
+- [ ] **Step 3: Implement the dataclass and loader using the exact validation flow below.**
 
 ```python
-condition = load_generalization_condition(path)
-self.assertEqual(condition.condition_id, "c-model")
-self.assertEqual(condition.model, "/mnt/model/Qwen2.5-14B-Instruct")
-self.assertEqual(condition.concurrency, 1)
-self.assertEqual(condition.dataset.requests_per_case, 8)
-self.assertEqual(condition.dataset.decision_samples[0].external_tokens, 232)
-```
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+import json
 
-Also add a rejection test where `external_kv_tokens_total != requests_per_case * external_tokens_per_request`.
+from benchmarks.cache.cost_model_calibration import CalibrationDataset, DecisionSample
 
-- [ ] **Step 2: Run focused tests and verify RED**
 
-Expected: ImportError because `cost_model_generalization.py` and `load_generalization_condition` do not exist.
-
-- [ ] **Step 3: Implement the minimal dataclass and loader**
-
-Use these public definitions:
-
-```python
 @dataclass(frozen=True, slots=True)
 class GeneralizationCondition:
     condition_id: str
@@ -337,29 +314,72 @@ class GeneralizationCondition:
 
 def load_generalization_condition(
     path: Path,
-    percentile: str = "p95",
+    percentile: str = 'p95',
 ) -> GeneralizationCondition:
-    ...
+    if percentile not in {'p50', 'p95', 'p99'}:
+        raise ValueError(f'unsupported percentile: {percentile}')
+    raw = json.loads(path.read_text(encoding='utf-8'))
+    if raw.get('schema_version') != 1 or raw.get('issue') != 15:
+        raise ValueError('generalization artifact must be schema 1 for issue 15')
+    meta = raw['condition']
+    requests = meta['requests_per_case']
+    if type(requests) is not int or requests <= 0:
+        raise ValueError('requests_per_case must be a positive integer')
+    decision_samples = []
+    sample_metadata = []
+    for row in raw.get('samples', []):
+        source = row['source']
+        if source not in {'cpu_primary', 'secondary:filesystem'}:
+            raise ValueError(f'unsupported source: {source}')
+        total = row['external_kv_tokens_total']
+        per_request = row['external_tokens_per_request']
+        if type(total) is not int or total <= 0:
+            raise ValueError('external_kv_tokens_total must be a positive integer')
+        if type(per_request) is not int or per_request <= 0:
+            raise ValueError('external_tokens_per_request must be a positive integer')
+        if total != requests * per_request:
+            raise ValueError('external token total/per-request mismatch')
+        decision_samples.append(
+            DecisionSample(
+                source=source,
+                requested_tokens=int(row['requested_tokens']),
+                external_tokens=per_request,
+                actual_recompute_ms=float(row['recompute_ttft_ms'][percentile]),
+                actual_restore_ms=float(row['restore_ttft_ms'][percentile]),
+            )
+        )
+        sample_metadata.append(dict(row))
+    dataset = CalibrationDataset(
+        percentile=percentile,
+        source_artifact=str(path),
+        requests_per_case=requests,
+        decision_samples=tuple(
+            sorted(decision_samples, key=lambda s: (s.requested_tokens, s.source))
+        ),
+        repeat_direction_checks=(),
+        excluded_samples=tuple(raw.get('excluded_samples', [])),
+    )
+    return GeneralizationCondition(
+        condition_id=str(meta['id']),
+        model=str(meta['model']),
+        served_model=str(meta['served_model']),
+        concurrency=int(meta['concurrency']),
+        request_rate=meta['request_rate'],
+        tensor_parallel_size=int(meta['tensor_parallel_size']),
+        gpu_uuid=str(meta['gpu_uuid']),
+        environment_artifact=str(meta['environment_artifact']),
+        run_directories={str(k): str(v) for k, v in meta['run_directories'].items()},
+        dataset=dataset,
+        sample_metadata=tuple(sample_metadata),
+        excluded_samples=tuple(raw.get('excluded_samples', [])),
+    )
 ```
 
-The loader must:
-
-1. require `schema_version == 1` and `issue == 15`;
-2. require P95/P50/P99 only, matching the existing calibration loader choices;
-3. validate positive integer `requests_per_case`, `external_kv_tokens_total`, and `external_tokens_per_request`;
-4. require exact divisibility/equality between total and per-request external tokens;
-5. accept only `cpu_primary` and `secondary:filesystem` sources;
-6. convert each valid row to existing `DecisionSample` using `external_tokens_per_request`;
-7. build an existing `CalibrationDataset` with empty repeat checks and the condition's excluded-sample records;
-8. preserve the original per-row transfer/workload metadata separately for reporting.
-
-- [ ] **Step 4: Run focused tests and verify GREEN**
-
-Use stdlib unittest only.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Run GREEN and commit.**
 
 ```bash
+python -m unittest discover -s benchmarks/cache/tests \
+  -p 'test_cost_model_generalization.py' -v
 git add benchmarks/cache/cost_model_generalization.py \
   benchmarks/cache/tests/test_cost_model_generalization.py
 git commit -m "feat: load cost model generalization conditions"
@@ -367,55 +387,46 @@ git commit -m "feat: load cost model generalization conditions"
 
 ---
 
-### Task 4: Implement frozen-profile evaluation and the pre-registered transfer gate
+### Task 4: Implement frozen-profile evaluation and the transfer gate
 
 **Files:**
 - Modify: `benchmarks/cache/cost_model_generalization.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
-- Consumes: `GeneralizationCondition`, a supplied frozen `cache_cost_model` mapping.
-- Produces:
-  - `evaluate_frozen_condition(condition, profile, *, profile_identity) -> dict[str, Any]`
-  - result schema with separate `high_confidence`, `low_confidence`, aggregate errors, and fixed transfer classification.
+- Produces `evaluate_frozen_condition(condition, profile, *, profile_identity)`.
+- Calls existing `evaluate_profile()` only; never calls `derive_calibrated_profile()`.
 
-- [ ] **Step 1: Write RED tests proving the supplied profile is evaluated without derivation**
+- [ ] **Step 1: Add RED tests for a deliberately wrong supplied profile.**
 
-Create a synthetic condition where the supplied profile intentionally predicts a wrong CPU decision. Assert the returned result preserves that wrong prediction rather than fitting it away:
+Assert:
 
 ```python
 result = evaluate_frozen_condition(
     condition,
     frozen_profile,
-    profile_identity="fixture",
+    profile_identity='fixture-profile',
 )
-self.assertEqual(result["profile_identity"], "fixture")
-self.assertEqual(result["evaluation_mode"], "frozen_profile_holdout")
-self.assertFalse(result["samples"][0]["decision_correct"])
+self.assertEqual(result['evaluation_mode'], 'frozen_profile_holdout')
+self.assertEqual(result['profile_identity'], 'fixture-profile')
+self.assertNotIn('calibrated_profile', result)
+self.assertFalse(result['samples'][0]['decision_correct'])
 ```
 
-Also assert the function never returns a `calibrated_profile` key.
+- [ ] **Step 2: Add RED gate tests for six cases.**
 
-- [ ] **Step 2: Write RED gate tests for all pre-registered conditions**
+Cover:
 
-Cover these exact cases:
+1. all three curves represented by high-confidence rows and all gates pass -> `fixed_profile_transfer_pass`;
+2. any curve has zero high-confidence evidence -> `insufficient_evidence`;
+3. macro <= 15% but a principal curve > 20% -> `fixed_profile_transfer_fail`;
+4. wrong high-confidence decision with absolute actual margin > 1 ms -> fail;
+5. boundary-sensitive wrong row remains counted in accuracy rather than dropped;
+6. low-confidence rows are reported but do not satisfy the evidence-presence gate.
 
-1. all three principal curves have high-confidence evidence, accuracy 1.0, macro <= 15%, each curve <= 20% -> `fixed_profile_transfer_pass`;
-2. one principal curve missing high-confidence evidence -> `insufficient_evidence`;
-3. macro <= 15% but CPU restore MAPE > 20% -> `fixed_profile_transfer_fail`;
-4. wrong high-confidence decision with `abs(actual_margin_ms) > 1.0` -> `fixed_profile_transfer_fail`;
-5. only wrong decision is boundary-sensitive with `abs(actual_margin_ms) <= 1.0`, but all error gates otherwise pass -> gate is decided by accuracy threshold, not by silently dropping the row;
-6. low-confidence rows are reported separately and do not create principal-curve evidence for the pass gate.
+- [ ] **Step 3: Run RED.**
 
-- [ ] **Step 3: Run focused tests and verify RED**
-
-Expected: missing `evaluate_frozen_condition` / classification helpers.
-
-- [ ] **Step 4: Implement using the existing pure evaluator**
-
-Call the existing `evaluate_profile(condition.dataset, profile)` exactly once. Do not call `derive_calibrated_profile()`.
-
-Add constants:
+- [ ] **Step 4: Implement fixed constants and high-confidence aggregation.**
 
 ```python
 DECISION_ACCURACY_MIN = 0.95
@@ -424,21 +435,38 @@ PRINCIPAL_CURVE_MAPE_MAX = 20.0
 BOUNDARY_MARGIN_MS = 1.0
 ```
 
-Partition rows by `row["confidence"]`. Recompute the high-confidence aggregate rather than reusing the all-row aggregate, because the primary gate is explicitly high-confidence-only. Deduplicate recompute errors by `(requested_tokens, external_tokens)` exactly as the existing evaluator does.
+Call:
 
-Return both:
+```python
+raw = evaluate_profile(condition.dataset, profile)
+```
 
-- all-sample raw evaluation for evidence;
-- high-confidence gate aggregate;
-- low-confidence rows and their descriptive error summary;
-- `classification` in `{fixed_profile_transfer_pass, fixed_profile_transfer_fail, insufficient_evidence}`;
-- frozen threshold values in the JSON output.
+Partition `raw['samples']` by confidence. For high-confidence rows, deduplicate recompute errors by `(requested_tokens, external_tokens)`, compute separate recompute/CPU/filesystem MAPE values, then equal-weight macro-MAPE. Determine evidence presence from non-zero sample counts for each principal curve.
 
-- [ ] **Step 5: Run focused tests and verify GREEN**
+Use this exact verdict order:
 
-- [ ] **Step 6: Commit**
+```text
+if any principal high-confidence sample count is zero:
+    insufficient_evidence
+elif decision_accuracy < 0.95:
+    fixed_profile_transfer_fail
+elif principal_macro_mape_percent > 15.0:
+    fixed_profile_transfer_fail
+elif any principal curve MAPE > 20.0:
+    fixed_profile_transfer_fail
+elif any wrong high-confidence row has abs(actual_margin_ms) > 1.0:
+    fixed_profile_transfer_fail
+else:
+    fixed_profile_transfer_pass
+```
+
+Return immutable raw sample predictions plus threshold values, high-confidence aggregate, low-confidence sample list, and verdict.
+
+- [ ] **Step 5: Run GREEN and commit.**
 
 ```bash
+python -m unittest discover -s benchmarks/cache/tests \
+  -p 'test_cost_model_generalization.py' -v
 git add benchmarks/cache/cost_model_generalization.py \
   benchmarks/cache/tests/test_cost_model_generalization.py
 git commit -m "feat: evaluate frozen cost profiles on holdout data"
@@ -446,56 +474,31 @@ git commit -m "feat: evaluate frozen cost profiles on holdout data"
 
 ---
 
-### Task 5: Add one-scalar transfer/scale/shape diagnostics without altering the primary verdict
+### Task 5: Add one-scalar scale/shape diagnostics
 
 **Files:**
 - Modify: `benchmarks/cache/cost_model_generalization.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
-**Interfaces:**
-- Consumes: saved frozen evaluation rows.
-- Produces: `diagnose_curve_scaling(evaluation: Mapping[str, Any]) -> dict[str, Any]`.
+**Interfaces:** Produces `diagnose_curve_scaling(evaluation)` without modifying the primary verdict or predictions.
 
-- [ ] **Step 1: Write RED tests for three diagnostic classes**
+- [ ] **Step 1: Add RED synthetic tests for all three diagnostic classes.**
 
-Synthetic row sets must cover:
+Use one curve with raw MAPE <= 15%, one with constant 1.5x actual/predicted ratio, and one with ratios `1.0, 1.5, 2.0` that remain >15% residual after one scalar.
 
-```text
-transferable:
-  raw relative errors average <= 15%
-
-environment_specific_scale_candidate:
-  actual/predicted ratios are approximately constant at 1.5x,
-  raw MAPE > 15%, scalar-residual MAPE <= 15%
-
-curve_shape_or_missing_feature:
-  ratios vary materially with token count, for example 1.0x, 1.5x, 2.0x,
-  one-scalar residual MAPE remains > 15%
-```
-
-- [ ] **Step 2: Run tests and verify RED**
-
-- [ ] **Step 3: Implement exact scalar semantics**
+- [ ] **Step 2: Implement exact diagnostic math.**
 
 For each principal curve:
 
 ```python
-scale = statistics.median(
-    row["actual_ms"] / row["predicted_ms"] for row in curve_rows
-)
+scale = statistics.median(actual / predicted for actual, predicted in points)
 residual_mape = 100.0 * statistics.fmean(
-    abs((row["predicted_ms"] * scale) - row["actual_ms"]) / row["actual_ms"]
-    for row in curve_rows
+    abs(predicted * scale - actual) / actual
+    for actual, predicted in points
 )
 ```
 
-Use the same three logical curves as the primary macro metric:
-
-- recompute;
-- CPU-primary restore;
-- secondary-filesystem restore.
-
-Classification rules are exact:
+Classify:
 
 ```text
 raw MAPE <= 15% -> transferable
@@ -503,13 +506,13 @@ raw MAPE > 15% and residual MAPE <= 15% -> environment_specific_scale_candidate
 residual MAPE > 15% -> curve_shape_or_missing_feature
 ```
 
-Store the scalar and residual error only under a `diagnostics` section. Do not modify `classification` from Task 4 and do not replace predicted values in primary samples.
+Store diagnostics under a separate `diagnostics` mapping only.
 
-- [ ] **Step 4: Run tests and verify GREEN**
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Run GREEN and commit.**
 
 ```bash
+python -m unittest discover -s benchmarks/cache/tests \
+  -p 'test_cost_model_generalization.py' -v
 git add benchmarks/cache/cost_model_generalization.py \
   benchmarks/cache/tests/test_cost_model_generalization.py
 git commit -m "feat: classify cost model scale and shape drift"
@@ -517,54 +520,47 @@ git commit -m "feat: classify cost model scale and shape drift"
 
 ---
 
-### Task 6: Add a deterministic frozen-profile generalization CLI
+### Task 6: Add the deterministic frozen-profile CLI
 
 **Files:**
 - Create: `benchmarks/cache/evaluate_cost_model_generalization.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
-- Consumes: `--input` Issue #15 condition JSON and `--profile` frozen profile artifact.
-- Produces: deterministic result JSON and compact one-line summary.
+- Required args: `--input`, `--profile`, `--output`.
+- Optional args: `--percentile p50|p95|p99`, default P95; `--diagnose`; `--check`.
+- No CLI option may alter frozen acceptance thresholds.
 
-- [ ] **Step 1: Write RED CLI tests**
+- [ ] **Step 1: Add a RED deterministic CLI test.**
 
-Add a unittest that calls `main([...])` twice with the same fixture and asserts byte-identical output.
+Call `main(args)` twice with the same fixture and assert identical output bytes. Assert summary starts with `holdout: condition=c-model` and `--check` exits 1 for a non-pass verdict.
 
-The CLI contract is exactly:
+- [ ] **Step 2: Implement the CLI flow exactly.**
 
-```text
---input PATH      required
---profile PATH    required
---percentile      p50|p95|p99, default p95
---output PATH     required
---diagnose        optional; adds one-scalar diagnostic section after primary evaluation
---check           optional; exits 1 unless classification is fixed_profile_transfer_pass
+```python
+condition = load_generalization_condition(args.input, percentile=args.percentile)
+profile = load_profile_artifact(args.profile)
+result = evaluate_frozen_condition(
+    condition,
+    profile,
+    profile_identity=str(args.profile),
+)
+if args.diagnose:
+    result['diagnostics'] = diagnose_curve_scaling(result)
+args.output.parent.mkdir(parents=True, exist_ok=True)
+args.output.write_text(
+    json.dumps(result, indent=2, sort_keys=True) + '\n',
+    encoding='utf-8',
+)
 ```
 
-Do not expose CLI flags that change the frozen acceptance thresholds.
+Print one compact line containing condition, decision correct/total, accuracy, macro-MAPE, and classification. `--check` returns 0 only for `fixed_profile_transfer_pass`.
 
-Summary format:
+- [ ] **Step 3: Run GREEN and characterize the old #14 CLI unchanged.**
 
-```text
-holdout: condition=<id> decision=<correct>/<total> accuracy=<x.xxx> macro_mape=<x.xxx>% classification=<classification>
-```
+Do not modify `benchmarks/cache/evaluate_cost_model.py`. Run the existing checked-in #13 evaluator offline and confirm it retains its current `after:` behavior.
 
-- [ ] **Step 2: Run focused tests and verify RED**
-
-- [ ] **Step 3: Implement the CLI**
-
-Load the profile only with existing `load_profile_artifact()`. Load the condition with `load_generalization_condition()`. Call `evaluate_frozen_condition()`. If `--diagnose` is present, attach `diagnose_curve_scaling(result)` after the primary result is already built.
-
-Write deterministic JSON with sorted keys, two-space indentation, and a trailing newline.
-
-- [ ] **Step 4: Run focused tests and verify GREEN**
-
-- [ ] **Step 5: Verify the old Issue #14 CLI still has unchanged semantics**
-
-Use direct Python invocation on the checked-in #13 artifact and confirm the existing evaluator still prints the known `after:` summary and produces the original acceptance behavior. This is a compatibility proof, not a new hardware run.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit.**
 
 ```bash
 git add benchmarks/cache/evaluate_cost_model_generalization.py \
@@ -574,108 +570,70 @@ git commit -m "feat: add frozen profile generalization evaluator"
 
 ---
 
-### Task 7: Build Issue #15 condition datasets from existing benchmark run artifacts
+### Task 7: Build structured condition datasets from run-suite artifacts
 
 **Files:**
 - Create: `benchmarks/cache/build_generalization_dataset.py`
 - Create: `benchmarks/cache/tests/test_build_generalization_dataset.py`
 
 **Interfaces:**
-- Consumes three `run_suite.py` run directories for one condition:
-  - recompute/no-cache source;
-  - CPU-primary source;
-  - secondary-filesystem source.
-- Produces a schema-version-1 Issue #15 condition JSON accepted by `load_generalization_condition()`.
+- CLI args: `--condition-id`, `--recompute-run`, `--cpu-run`, `--filesystem-run`, `--percentile`, `--output`.
+- Model, concurrency, request rate, requests-per-case, TP size, environment path, and run paths are inferred from manifests/records, not trusted from labels.
 
-- [ ] **Step 1: Write synthetic run fixtures with stdlib unittest**
+- [ ] **Step 1: Add synthetic run fixtures using only stdlib tempfile/json.**
 
-The test must create temporary run directories containing:
+Each fixture run contains `manifest.json`, `environment.json`, `scenario-results.jsonl`, and raw `metadata.json`. Use completed `eviction-restore` records at one anchor for no-cache, CPU-offload, and tiered-fs. Give paired records identical measure/populate SHA256 values.
 
-- `manifest.json` with model/config/requests-per-case;
-- `environment.json`;
-- `scenario-results.jsonl` with completed `eviction-restore` records;
-- each raw case `metadata.json` containing measure/populate SHA256 values.
+- [ ] **Step 2: Add RED acceptance/rejection tests.**
 
-Use one requested-token anchor and all three cache modes. The no-cache and restore records must have identical workload SHA values.
+Accept CPU-primary only with positive external KV tokens and positive CPU-to-GPU transfer count/bytes. Accept filesystem only with those plus positive async tiering lookup evidence. Hard-fail workload SHA mismatch or condition metadata mismatch. Record configured-mode/no-transfer, incomplete benchmark, and missing tier evidence as explicit exclusions.
 
-- [ ] **Step 2: Write RED tests for accepted provenance**
+- [ ] **Step 3: Implement record selection.**
 
-The builder must accept:
-
-- no-cache recompute with completed native result;
-- CPU-primary restore only when external KV tokens are positive and CPU-to-GPU transfer count/bytes are positive;
-- filesystem restore only when the same external/CPU-to-GPU evidence is present and the tiering async lookup count is positive.
-
-The tests should use normalized Prometheus delta keys matching the runtime evidence pattern, for example keys whose base names end in:
-
-```text
-prompt_tokens_by_source{source="external_kv_transfer"}
-kv_offload_size_count{transfer_type="CPU_to_GPU"}
-kv_offload_total_bytes{transfer_type="CPU_to_GPU"}
-```
-
-and use normalized selected cache evidence for the tiering lookup count when available.
-
-- [ ] **Step 3: Write RED rejection/exclusion tests**
-
-Cover:
-
-1. CPU configured mode but zero external tokens -> excluded with `invalid_cpu_restore_provenance`;
-2. CPU external tokens positive but zero CPU-to-GPU transfers -> excluded;
-3. filesystem restore with no async lookup evidence -> excluded with `invalid_secondary_restore_provenance`;
-4. workload measure/populate SHA mismatch between recompute and restore -> raise a hard fairness error, do not emit a comparable sample;
-5. model, concurrency, requested-anchor, or requests-per-case mismatch across paired runs -> hard error;
-6. incomplete benchmark record -> excluded with its status/reason.
-
-- [ ] **Step 4: Run tests and verify RED**
-
-- [ ] **Step 5: Implement the builder with these public helpers**
+Load each `scenario-results.jsonl` and select records satisfying:
 
 ```python
-def build_condition_dataset(
-    *,
-    condition_id: str,
-    recompute_run: Path,
-    cpu_run: Path,
-    filesystem_run: Path,
-    percentile: str = "p95",
-) -> dict[str, Any]:
-    ...
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    ...
+record['workload_kind'] == 'eviction-restore'
 ```
 
-CLI contract:
+Then pair by `(prompt_tokens, concurrency, request_rate)` and expected cache mode. Read each record's `workload_metadata` JSON for measure/populate SHA values. Require identical workload SHA values across recompute and restore rows before comparing latency.
+
+- [ ] **Step 4: Implement Prometheus evidence lookup.**
+
+Read `record['normalized']['prometheus']['delta']`. Match metric base names ending with the runtime families used by #13 evidence. Sum positive values for external-KV token samples labeled `source="external_kv_transfer"`, CPU-to-GPU transfer count, and CPU-to-GPU total bytes. For filesystem rows also require the normalized tiering async lookup count/sum evidence to be positive.
+
+- [ ] **Step 5: Emit exact external-token normalization.**
+
+For an accepted restore row:
+
+```python
+if external_total % requests_per_case != 0:
+    raise ValueError('external KV tokens not divisible by requests_per_case')
+external_per_request = external_total // requests_per_case
+```
+
+Write both total and per-request values. Pair the same no-cache P95 recompute latency with each source row.
+
+- [ ] **Step 6: Emit condition metadata and exclusions.**
+
+Output schema uses:
 
 ```text
---condition-id ID
---recompute-run PATH
---cpu-run PATH
---filesystem-run PATH
---percentile p50|p95|p99 (default p95)
---output PATH
+schema_version = 1
+issue = 15
+condition.id = supplied condition id
+condition model/concurrency/request-rate/TP/GPU/environment/run paths = inferred evidence
+samples = accepted CPU/filesystem rows
+excluded_samples = explicit invalid records with reason
 ```
 
-The builder must infer model identity, concurrency, request rate, requests-per-case, TP size, environment artifact, and run paths from manifests/records instead of accepting them as unverified CLI labels.
+GPU UUID must be extracted from environment evidence. If unavailable, builder fails rather than inventing provenance.
 
-- [ ] **Step 6: Emit both total and per-request external tokens**
-
-For each accepted restore row write:
-
-```json
-"external_kv_tokens_total": 1856,
-"external_tokens_per_request": 232
-```
-
-Reject totals that are not divisible by requests-per-case.
-
-- [ ] **Step 7: Run tests and verify GREEN**
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Run GREEN and commit.**
 
 ```bash
+python -m unittest discover -s benchmarks/cache/tests \
+  -p 'test_build_generalization_dataset.py' -v
 git add benchmarks/cache/build_generalization_dataset.py \
   benchmarks/cache/tests/test_build_generalization_dataset.py
 git commit -m "feat: build generalization datasets from cache runs"
@@ -683,78 +641,45 @@ git commit -m "feat: build generalization datasets from cache runs"
 
 ---
 
-### Task 8: Add pre-registered Issue #15 benchmark configuration templates
+### Task 8: Add the four pre-registered benchmark config templates
 
-**Files:**
-- Create: `benchmarks/cache/configs/issue15-7b-load-sentinel-cpu.yaml`
-- Create: `benchmarks/cache/configs/issue15-7b-load-sentinel-fs.yaml`
-- Create: `benchmarks/cache/configs/issue15-14b-formal-cpu.yaml`
-- Create: `benchmarks/cache/configs/issue15-14b-formal-fs.yaml`
+**Files:** the four config paths listed in File Structure.
 
-**Interfaces:**
-- Consumes: existing strict `SuiteConfig`, existing `run_suite.py`, existing `eviction-restore` workload.
-- Produces: reproducible pre-registered config templates; formal C-load configs are derived outside Git after concurrency selection.
+**Interfaces:** Existing strict `load_suite_config()` and `run_suite.py` only; no benchmark-core change.
 
-- [ ] **Step 1: Create the 7B CPU sentinel config from the checked-in crossover config**
+- [ ] **Step 1: Create 7B CPU sentinel config from `local-crossover.yaml`.**
 
-Exact intentional changes from `local-crossover.yaml`:
+Keep control model, TP1, GPU KV 2 GiB, pressure fill 65536, requests-per-case 8, request rate inf, seed 1, output 1, tolerance 2. Set CPU tier to 8 GiB, filesystem disabled, prompt list `[1024]`, concurrency `[1, 2, 4, 8]`, shared-prefix ratios `[0.0]`.
 
-```yaml
-cache:
-  cpu_bytes_to_use: 8589934592
-  filesystem:
-    enabled: false
-workload:
-  prompt_tokens: [1024]
-  concurrency: [1, 2, 4, 8]
-  shared_prefix_ratios: [0.0]
-```
+- [ ] **Step 2: Create 7B filesystem sentinel config.**
 
-Keep model path, TP=1, GPU KV bytes, pressure fill token budget, requests-per-case, request rate, seed, output tokens, and token-length tolerance unchanged.
+Same controls, CPU tier 2 GiB, filesystem enabled, prompt `[1024]`, concurrency `[1, 2, 4, 8]`.
 
-- [ ] **Step 2: Create the 7B filesystem sentinel config**
+- [ ] **Step 3: Create 14B CPU and filesystem formal configs.**
 
-Use CPU bytes `2147483648`, filesystem enabled, prompt `[1024]`, concurrency `[1,2,4,8]`, and otherwise the same control settings.
+Use model/tokenizer `/mnt/model/Qwen2.5-14B-Instruct`, served name `qwen2.5-14b`, TP1, C1, formal prompts `[128, 192, 256, 1024, 4096]`, shared-prefix ratios `[0.0]`. CPU config starts at 8 GiB with filesystem disabled; filesystem config uses 2 GiB with filesystem enabled. Preserve other control settings.
 
-- [ ] **Step 3: Create the 14B formal configs**
+- [ ] **Step 4: Validate all four configs through the real loader.**
 
-Use:
-
-```yaml
-model:
-  id: /mnt/model/Qwen2.5-14B-Instruct
-  served_name: qwen2.5-14b
-workload:
-  tokenizer: /mnt/model/Qwen2.5-14B-Instruct
-  prompt_tokens: [128, 192, 256, 1024, 4096]
-  concurrency: [1]
-  shared_prefix_ratios: [0.0]
-```
-
-CPU template starts with 8 GiB CPU tier and filesystem disabled. Filesystem template uses 2 GiB CPU tier and filesystem enabled. All other controls match the 7B control where feasible.
-
-- [ ] **Step 4: Validate all four configs with the real loader**
-
-Run a focused Python assertion loop:
-
-```python
+```bash
+python - <<'PY'
 from pathlib import Path
 from benchmarks.cache.config import load_suite_config
-
-paths = sorted(Path("benchmarks/cache/configs").glob("issue15-*.yaml"))
-assert len(paths) == 4
+paths = sorted(Path('benchmarks/cache/configs').glob('issue15-*.yaml'))
+assert len(paths) == 4, paths
 for path in paths:
-    config = load_suite_config(path)
-    assert config.parallelism.tensor_parallel_size == 1
-    assert config.workload.request_rate == ["inf"]
-print("validated", len(paths), "issue15 configs")
+    cfg = load_suite_config(path)
+    assert cfg.parallelism.tensor_parallel_size == 1
+    assert cfg.workload.request_rate == ['inf']
+    print('config-ok', path)
+PY
 ```
 
-- [ ] **Step 5: Dry-run all four configs before any GPU measurement**
+- [ ] **Step 5: Dry-run all four configs before hardware work.**
 
-Use `run_suite.py --dry-run`; redirect full output to files and retain only compact case-count summaries. Verify generated cases include the intended `eviction-restore` cases.
+Redirect verbose output to files and inspect generated `scenarios.json` for intended eviction-restore cases only. Do not start expensive runs yet.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Commit.**
 
 ```bash
 git add benchmarks/cache/configs/issue15-*.yaml
@@ -763,16 +688,11 @@ git commit -m "bench: add issue 15 validation configs"
 
 ---
 
-### Task 9: Verify implementation locally before hardware execution
+### Task 9: Complete local implementation verification before GPU measurement
 
-**Files:**
-- No new files unless fixes are required by the focused verification.
+**Files:** no new files unless verification fixes are required.
 
-**Interfaces:**
-- Consumes: Tasks 2-8 implementation.
-- Produces: a clean local implementation proof before any expensive run.
-
-- [ ] **Step 1: Run both new unittest modules**
+- [ ] **Step 1: Run both stdlib test modules.**
 
 ```bash
 python -m unittest discover -s benchmarks/cache/tests \
@@ -781,13 +701,7 @@ python -m unittest discover -s benchmarks/cache/tests \
   -p 'test_build_generalization_dataset.py' -v
 ```
 
-Expected: all tests PASS without pytest installed.
-
-- [ ] **Step 2: Run the frozen evaluator against the existing control as a compatibility characterization**
-
-First build a small Issue #15-format fixture from checked-in #13 structured values or a dedicated test fixture, then evaluate using `issue14-shadow-cost-calibrated.json`. This is not a hardware rerun. The decision/error behavior must match the #14 calibrated baseline within the same sample set.
-
-- [ ] **Step 3: Run compile and static focused checks**
+- [ ] **Step 2: Run focused compile/static checks.**
 
 ```bash
 python -m compileall -q \
@@ -796,152 +710,110 @@ python -m compileall -q \
   benchmarks/cache/build_generalization_dataset.py \
   benchmarks/cache/tests/test_cost_model_generalization.py \
   benchmarks/cache/tests/test_build_generalization_dataset.py
-ruff check \
-  benchmarks/cache/cost_model_generalization.py \
-  benchmarks/cache/evaluate_cost_model_generalization.py \
-  benchmarks/cache/build_generalization_dataset.py \
-  benchmarks/cache/tests/test_cost_model_generalization.py \
-  benchmarks/cache/tests/test_build_generalization_dataset.py
-ruff format --check \
-  benchmarks/cache/cost_model_generalization.py \
-  benchmarks/cache/evaluate_cost_model_generalization.py \
-  benchmarks/cache/build_generalization_dataset.py \
-  benchmarks/cache/tests/test_cost_model_generalization.py \
-  benchmarks/cache/tests/test_build_generalization_dataset.py
 git diff --check
 ```
 
-If `ruff` is unavailable on the Pod, record that fact and defer repository-wide/static authority to GitHub Actions rather than installing unrelated tooling.
+If Ruff is installed, run `ruff check` and `ruff format --check` on the five Python paths above. If Ruff is absent, record that and rely on GitHub Actions; do not install unrelated tooling merely for convenience.
 
-- [ ] **Step 4: Verify the runtime scope invariant**
+- [ ] **Step 3: Verify changed-file scope.**
 
 ```bash
 git diff --name-only origin/main...HEAD | sort
 ```
 
-Expected: no file under `vllm/v1/kv_offload/`, scheduler, attention, block manager, or other active inference path.
+Stop if an active runtime/scheduler/inference file appears unexpectedly.
 
 ---
 
-### Task 10: Run Phase 0 provenance, drift, and 14B feasibility preflight
+### Task 10: Run Phase 0 provenance and feasibility preflight
 
-**Files:**
-- Raw outputs only under `/code/results/cache`; no checked-in result yet.
+**Files:** raw results only under `/code/results/cache`.
 
-**Interfaces:**
-- Consumes: verified implementation/configs.
-- Produces: same-session provenance, 7B/C1 sentinel, and 14B load/workload feasibility evidence.
+- [ ] **Step 1: Capture locale-independent environment evidence.**
 
-- [ ] **Step 1: Capture locale-independent environment evidence**
+Use existing `collect_environment_evidence()` plus compact commands for `lscpu --json`, `numactl --hardware`, `nvidia-smi` UUID/topology, memory, `findmnt -T /tmp/vllm-kv-cache`, Python/vLLM version, worktree HEAD/status.
 
-Use existing `collect_environment_evidence()` through a dry or minimal run and independently preserve compact provenance with `lscpu --json`, `numactl --hardware`, `nvidia-smi` UUID/topology, `findmnt -T /tmp/vllm-kv-cache -o TARGET,SOURCE,FSTYPE,OPTIONS`, memory snapshot, Python/vLLM version, and worktree HEAD.
+- [ ] **Step 2: Verify control GPU identity.**
 
-Do not infer physical NVMe from an overlay filesystem.
+GPU0 must match `GPU-5516e45d-3e50-69ef-f0f2-8ecff465beea` to claim same-GPU control. Record any difference before continuing.
 
-- [ ] **Step 2: Verify GPU0 UUID matches the control GPU**
+- [ ] **Step 3: Run only the 7B/C1 1024 sentinel paths.**
 
-Expected GPU0 UUID: `GPU-5516e45d-3e50-69ef-f0f2-8ecff465beea`. If device ordering or UUID differs, record it before continuing and do not silently call the condition same-hardware control.
+Use dry-run `scenarios.json` to select `eviction-restore`, prompt 1024, concurrency 1 case IDs. CPU-primary comes from the 8 GiB CPU config; filesystem comes from the 2 GiB filesystem config; no-cache recompute may come from either run after workload SHA equality is verified.
 
-- [ ] **Step 3: Run only the 7B/C1 1024 sentinel cases needed for recompute, CPU-primary, and filesystem paths**
+- [ ] **Step 4: Treat the C1 sentinel only as drift/provenance evidence.**
 
-Use `--case-id` to avoid all unrelated generated cases. Determine selected case IDs from a dry-run `scenarios.json` by filtering:
+Do not put it into the formal generalization aggregate.
 
-```text
-workload_kind == eviction-restore
-prompt_tokens == 1024
-concurrency == 1
-cache_mode in {no-cache, cpu-offload, tiered-fs}
-```
+- [ ] **Step 5: Preflight 14B deterministic workload generation for all five anchors.**
 
-CPU-primary comes from the 8 GiB CPU sentinel config; tiered-fs comes from the 2 GiB filesystem sentinel config. Preserve workload SHA equality.
+Do not reseed a failed anchor.
 
-- [ ] **Step 4: Compare sentinel against archived control only as a drift diagnostic**
+- [ ] **Step 6: Preflight 14B CPU-primary at requested 1024 with 8 GiB CPU.**
 
-Record P95 recompute/CPU/filesystem latencies and provenance. Do not add sentinel data to the generalization accuracy aggregate.
+Require positive external KV tokens and positive CPU-to-GPU transfer count/bytes. If it recomputes because CPU capacity is insufficient, preserve that failure and post a material-deviation comment before changing capacity. The comment must state old/new capacity and that the adjustment exists only to preserve `cpu_primary` source semantics.
 
-- [ ] **Step 5: Preflight 14B load and deterministic workload generation**
+- [ ] **Step 7: Preflight 14B filesystem at requested 1024.**
 
-Run dry/workload generation for all five formal anchors before expensive benchmark execution. Do not reseed failed anchors.
-
-- [ ] **Step 6: Preflight 14B CPU-primary capacity provenance at 1024**
-
-Run one 14B/C1 1024 CPU-primary case with the 8 GiB CPU template. Accept it only if external KV tokens and CPU-to-GPU transfer evidence are positive.
-
-If the intended CPU restore does not occur because the victim is evicted from CPU, preserve the failed provenance and add a material-deviation comment to Issue #15 before changing CPU capacity. The comment must state the observed failure, the exact old/new CPU capacity, and that capacity is being changed only to preserve the `cpu_primary` source tier rather than as a generalization axis.
-
-- [ ] **Step 7: Preflight 14B filesystem provenance at 1024**
-
-Require positive external KV tokens, positive CPU-to-GPU transfer count/bytes, and positive async tiering lookup evidence. If it does not reach the filesystem tier, preserve the evidence and record a material deviation before changing pressure/capacity.
+Require external KV, CPU-to-GPU transfer, and async lower-tier lookup evidence. If the intended tier is not reached, preserve evidence and comment before changing pressure/capacity.
 
 ---
 
-### Task 11: Select the minimum materially contended C-load condition
+### Task 11: Select the minimum materially contended C-load
 
-**Files:**
-- Raw sentinel outputs under `/code/results/cache`.
-- A small selection JSON outside Git until final report generation.
+**Files:** raw sentinel runs plus `/code/results/cache/issue15-selection.json` outside Git.
 
-**Interfaces:**
-- Consumes: same-session C1 sentinel plus C2/C4/C8 candidate sentinel runs at requested 1024.
-- Produces: exactly one selected C-load concurrency or a recorded `no_material_contention_through_c8` outcome.
+- [ ] **Step 1: Run the 1024 sentinel at C2.**
 
-- [ ] **Step 1: Run C2 sentinel only**
+Measure recompute, CPU-primary, and filesystem paths with identical workload identity.
 
-Measure recompute, CPU-primary, and filesystem paths with the same 1024 workload identity and tier-specific capacities as C1.
+- [ ] **Step 2: Compute relative P95 changes against C1.**
 
-- [ ] **Step 2: Calculate P95 relative changes**
-
-For each principal path:
-
-```text
+```python
 relative_change = abs(candidate_p95 - c1_p95) / c1_p95
 ```
 
-Accept C2 only if one path is >= 0.20 and another path is >= 0.10 and restore provenance remains valid.
+C2 qualifies only when one principal path is >= 0.20, another is >= 0.10, and restore provenance remains valid.
 
-- [ ] **Step 3: If C2 does not qualify, run C4 and apply the same rule**
+- [ ] **Step 3: If C2 does not qualify, run C4 and apply the identical rule.**
 
-- [ ] **Step 4: If C4 does not qualify, run C8 and apply the same rule**
+- [ ] **Step 4: If C4 does not qualify, run C8 and apply the identical rule.**
 
-- [ ] **Step 5: Stop immediately at the first qualifying concurrency**
+- [ ] **Step 5: Stop at the first qualifying concurrency and write selection JSON.**
 
-Do not run larger candidates after selection.
+Use:
 
-- [ ] **Step 6: If C8 still does not qualify, stop expansion**
-
-Record `no_material_contention_through_c8`. Do not silently try C16/C32. Add an Issue #15 decision-log comment because this outcome changes the formal C-load execution path and may lead to `insufficient_evidence` for the load axis.
-
-- [ ] **Step 7: Create local formal C-load configs only after selection**
-
-Programmatically copy the 7B CPU/filesystem sentinel YAML into `/code/results/cache/issue15-configs/` and replace:
-
-```yaml
-workload:
-  prompt_tokens: [128, 192, 256, 1024, 4096]
-  concurrency: [<selected concurrency as an integer written by the script>]
+```json
+{
+  "schema_version": 1,
+  "selected_concurrency": 4,
+  "selection_reason": "first candidate satisfying pre-registered contention gate"
+}
 ```
 
-Do not commit the derived local config. Record its SHA256 and selected concurrency in the final structured artifact.
+The numeric example is replaced by the script using the actually selected candidate; no human edits the selection file after measurement.
+
+- [ ] **Step 6: If C8 still does not qualify, stop expansion.**
+
+Write `selected_concurrency` as JSON null and reason `no_material_contention_through_c8`; add an Issue #15 decision-log comment. Do not run C16/C32.
+
+- [ ] **Step 7: Generate formal 7B configs outside Git from selection JSON.**
+
+A Python script reads `issue15-selection.json`, errors if concurrency is null, copies the two sentinel YAML mappings, replaces prompt list with `[128, 192, 256, 1024, 4096]`, replaces concurrency with a one-element list containing the selected integer, and writes the two configs under `/code/results/cache/issue15-configs/`. Record SHA256 values.
 
 ---
 
-### Task 12: Run the two formal new conditions and build immutable measurement artifacts
+### Task 12: Run formal C-load and C-model measurements and build condition datasets
 
-**Files:**
-- Raw runs: `/code/results/cache/...`
-- Intermediate condition JSONs: `/code/results/cache/issue15-structured/c-load.json`, `/code/results/cache/issue15-structured/c-model.json`
+**Files:** raw runs plus `/code/results/cache/issue15-structured/c-load.json` and `c-model.json`.
 
-**Interfaces:**
-- Consumes: selected C-load configs and 14B formal configs.
-- Produces: two structured condition datasets before any diagnostic fitting.
+- [ ] **Step 1: Run only formal C-load eviction-restore cases for the five anchors.**
 
-- [ ] **Step 1: Run formal C-load recompute/CPU/filesystem cases only**
+Use `--case-id` selections from dry-run `scenarios.json`; do not execute unrelated workload kinds.
 
-Use `--case-id` filtering so only `eviction-restore` cases for the five formal anchors and selected concurrency execute. Do not run cold/warm/shared/mixed/restart cases.
+- [ ] **Step 2: Immediately build C-load structured data before evaluation.**
 
-- [ ] **Step 2: Build `c-load.json` immediately after raw runs**
-
-Use:
+Set shell variables to the exact run directories just created, print them, then run:
 
 ```bash
 python benchmarks/cache/build_generalization_dataset.py \
@@ -953,36 +825,29 @@ python benchmarks/cache/build_generalization_dataset.py \
   --output /code/results/cache/issue15-structured/c-load.json
 ```
 
-In execution, set the three shell variables from the exact run directories just created; print them before invoking the builder and record them in the Issue #15 work log.
+- [ ] **Step 3: Validate C-load JSON with `load_generalization_condition()`.**
 
-- [ ] **Step 3: Validate `c-load.json` before any evaluator run**
+Require condition ID `c-load`, correct selected concurrency, explicit accepted/excluded rows, and positive per-request external tokens for accepted restores.
 
-Use Python assertions to require condition ID, five requested anchors where valid, positive per-request external tokens for accepted restore samples, and explicit exclusions for invalid points.
+- [ ] **Step 4: Run the 14B/C1 formal five-anchor cases.**
 
-- [ ] **Step 4: Run formal C-model recompute/CPU/filesystem cases only**
+Use only provenance-preserving capacity adjustments already logged during Task 10.
 
-Use Qwen2.5-14B-Instruct, GPU0, TP1, C1, and the five formal anchors. Apply only provenance-preserving capacity adjustments that were pre-recorded in Issue #15 during Task 10.
+- [ ] **Step 5: Build and validate `c-model.json` before any evaluator run.**
 
-- [ ] **Step 5: Build and validate `c-model.json` before evaluation**
+Use the same builder and loader checks.
 
-Use the same builder and validation rules.
+- [ ] **Step 6: Preserve first failures.**
 
-- [ ] **Step 6: Do not rerun a failed point merely to improve the aggregate**
-
-Retry only operationally retryable failures with preserved first-failure evidence. Deterministic workload-generation failure remains an exclusion, not a reason to reseed.
+Retry only operationally retryable failures. Never reseed deterministic workload-generation failures or rerun merely to improve aggregate metrics.
 
 ---
 
-### Task 13: Evaluate frozen generalization, then diagnose failures without erasing them
+### Task 13: Evaluate frozen profiles, diagnose failures, and refine only local boundaries
 
-**Files:**
-- Intermediate evaluations under `/code/results/cache/issue15-structured/`.
+**Files:** immutable intermediate evaluations under `/code/results/cache/issue15-structured/`.
 
-**Interfaces:**
-- Consumes: frozen profile artifact plus `c-load.json` / `c-model.json`.
-- Produces: primary holdout verdicts, optional diagnostics, and boundary-refinement triggers.
-
-- [ ] **Step 1: Evaluate C-load with the frozen profile and save primary evidence**
+- [ ] **Step 1: Evaluate C-load without diagnostics.**
 
 ```bash
 python benchmarks/cache/evaluate_cost_model_generalization.py \
@@ -992,115 +857,52 @@ python benchmarks/cache/evaluate_cost_model_generalization.py \
   --output /code/results/cache/issue15-structured/c-load-evaluation.json
 ```
 
-Do not pass `--diagnose` on the first invocation.
+- [ ] **Step 2: Evaluate C-model without diagnostics.**
 
-- [ ] **Step 2: Evaluate C-model the same way**
+Write `/code/results/cache/issue15-structured/c-model-evaluation.json`.
 
-Save `c-model-evaluation.json` before diagnostics.
+- [ ] **Step 3: Compute SHA256 for both primary evaluation files before any diagnostic run.**
 
-- [ ] **Step 3: Preserve checksums of both primary evaluation files**
+- [ ] **Step 4: Run `--diagnose` only to separate output files for failed curves/conditions.**
 
-Compute SHA256 before any diagnostic command.
+Never overwrite primary evaluation JSON.
 
-- [ ] **Step 4: Run diagnostics only for conditions/curves that fail raw transfer**
+- [ ] **Step 5: Refine a boundary only when an approved trigger fires.**
 
-Use `--diagnose` to a different output filename such as `c-model-diagnostic.json`. Never overwrite primary evaluation files.
+Triggers are: P95 absolute actual margin <= 1 ms; adjacent formal anchors flip actual preferred path; or a clearly non-boundary wrong frozen prediction. Add only local anchors between implicated neighbors and stop once a reliable bracket/failure region exists.
 
-- [ ] **Step 5: Trigger local boundary refinement only when the approved rule fires**
+- [ ] **Step 6: Add an Issue #15 comment at the first meaningful failure boundary or stop/expand decision.**
 
-Refine only if:
-
-- P95 absolute actual margin <= 1 ms;
-- adjacent formal anchors change actual preferred-path sign; or
-- frozen profile makes a clearly non-boundary wrong decision.
-
-Choose local anchors between the implicated neighboring points, preserve deterministic generation, and stop when the boundary/failure region is bracketed.
-
-- [ ] **Step 6: Add an Issue #15 comment at the first meaningful failure boundary or stop decision**
-
-Record:
-
-- condition and source tier;
-- anchor/external-token region;
-- raw prediction error and decision error;
-- whether one scalar repairs the curve;
-- whether a new input is implicated;
-- whether the matrix stops or a narrowly scoped extra measurement is justified.
+Record condition/tier, requested and external-token region, raw error/decision, scalar diagnostic result, implicated missing input, and whether the matrix stops.
 
 ---
 
-### Task 14: Produce final structured results, validation report, and Issue #16 eligibility handoff
+### Task 14: Produce final evidence and Issue #16 eligibility handoff
 
 **Files:**
 - Create: `docs/engineering/validation/2026-08-11-issue15-generalization-validation.json`
 - Create: `docs/engineering/validation/2026-08-11-issue15-generalization-validation.md`
 - Create: `docs/engineering/handoffs/2026-08-11-issue16-active-decision-handoff.md`
 - Modify: `docs/engineering/CURRENT_STATE.md`
-- Modify: `docs/engineering/README.md` if its validation/handoff index requires the new records.
+- Modify: `docs/engineering/README.md` only if needed for index completeness.
 
-**Interfaces:**
-- Consumes: immutable primary evaluations, diagnostics, raw run provenance, and Issue #15 decision-log entries.
-- Produces: closeable Issue #15 evidence and bounded Issue #16 input.
+- [ ] **Step 1: Build final JSON from immutable primary evaluations and diagnostics.**
 
-- [ ] **Step 1: Build the checked-in JSON from immutable intermediate files**
+Include design/plan paths, worktree base provenance, archived C0 summary, C-load selection trace, both new-condition metadata, accepted/excluded samples, primary evaluation SHA256 values, high/low-confidence partitions, diagnostics, parameter classifications, failure boundaries, candidate required features, and eligibility map.
 
-The final JSON must include:
+- [ ] **Step 2: Write the validation report to answer all ten #15 research questions.**
 
-- schema version and issue number;
-- design spec and plan paths;
-- live-base provenance used for the experiment worktree;
-- C0 archived control summary;
-- C-load selection trace for C2/C4/C8 until stop;
-- C-load and C-model condition metadata;
-- all accepted and excluded samples;
-- primary frozen-profile evaluations and their SHA256 values;
-- low-confidence evidence separately;
-- diagnostics separately;
-- parameter classification for recompute, CPU-primary restore, and secondary filesystem restore;
-- failure boundaries;
-- candidate required features/inputs;
-- Issue #16 eligibility map.
+Explicitly answer recompute transfer, CPU restore transfer, machine/memory/PCIe/NUMA implications, secondary path specificity, concurrency scale-vs-shape behavior, fixed parameters, online-calibrated parameters, low-cardinality runtime observations, low-confidence/systematic-error regions, and whether a new feature should precede a wider sweep.
 
-- [ ] **Step 2: Write the report to answer every Issue #15 research question explicitly**
+- [ ] **Step 3: Write Issue #16 handoff as a bounded eligibility map.**
 
-The Markdown report must answer:
+Each entry states model/load region, source tier, observed external-token region, fixed-profile verdict, confidence, active-design eligibility (`eligible`, `ineligible`, or `needs_online_calibration`), and reason. Low-confidence extrapolation and failed regions are never eligible.
 
-1. whether the external-token recompute curve transfers;
-2. whether CPU-primary restore transfers;
-3. whether machine/memory/PCIe/NUMA scaling is implicated by available evidence;
-4. whether secondary tier is path-specific;
-5. whether concurrency changes global scale or curve shape/boundary;
-6. which parameters can remain fixed;
-7. which parameters need online calibration;
-8. which low-cardinality runtime observations are sufficient candidates for calibration;
-9. where confidence/systematic-error boundaries lie;
-10. whether a new input/feature should be designed before broader sweeps.
+- [ ] **Step 4: Update current-state docs only to facts supported by evidence.**
 
-Negative results count as valid completion evidence if they are preserved and interpreted.
+Do not describe #15 as completed until the close criteria are actually met.
 
-- [ ] **Step 3: Write the Issue #16 handoff as an eligibility map, not a global success claim**
-
-Each row/entry must state at least:
-
-```text
-model/load region
-source tier
-external-token region observed
-fixed-profile status
-confidence status
-active-design eligibility: eligible | ineligible | needs-online-calibration
-reason
-```
-
-Do not authorize active behavior in low-confidence extrapolation or failed regions.
-
-- [ ] **Step 4: Update current engineering state only to the evidence actually established**
-
-Do not mark Issue #15 completed merely because code is ready. The branch may state that the PR closes #15 only after the required evidence exists.
-
-- [ ] **Step 5: Run final local verification**
-
-Use:
+- [ ] **Step 5: Run final local verification.**
 
 ```bash
 python -m unittest discover -s benchmarks/cache/tests \
@@ -1111,96 +913,74 @@ python -m compileall -q benchmarks/cache
 python - <<'PY'
 import json
 from pathlib import Path
-for path in [
-    Path('docs/engineering/validation/2026-08-11-issue15-generalization-validation.json'),
+paths = [
     Path('benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json'),
-]:
+    Path('docs/engineering/validation/2026-08-11-issue15-generalization-validation.json'),
+]
+for path in paths:
     json.loads(path.read_text(encoding='utf-8'))
     print('json-ok', path)
 PY
 git diff --check
+git diff --name-only origin/main...HEAD | sort
 ```
 
-Run targeted Ruff checks if available. Do not install pytest just for local proof.
+Run targeted Ruff checks if available; do not install pytest.
 
-- [ ] **Step 6: Verify no forbidden active-runtime path changed**
-
-Compare changed filenames against the verified base. Any unexpected file under `vllm/v1/kv_offload/`, scheduler, attention, cache manager, transfer execution, or CUDA paths is a stop condition requiring explicit review.
-
-- [ ] **Step 7: Commit final evidence locally**
-
-Use a commit message such as:
+- [ ] **Step 6: Commit final local evidence but do not push.**
 
 ```bash
 git add benchmarks/cache docs/engineering docs/superpowers
 git commit -m "validate: record issue 15 cost model generalization"
 ```
 
-Do not push from the Pod.
+---
+
+### Task 15: Deliver through GitHub, run authoritative CI, and preserve merge gate
+
+**Files:** GitHub branch/PR metadata plus exact verified contents from the Pod worktree.
+
+- [ ] **Step 1: Transfer verified content through the GitHub-authoritative path.**
+
+Use the established content-addressed handoff pattern if needed. Verify delivered file content hashes against the Pod versions.
+
+- [ ] **Step 2: Open the feature PR as Draft.**
+
+Use `Closes #15` only if all close criteria are present. Summarize frozen-profile semantics, selected load, 14B evidence, error/decision comparison, transfer/scale/shape classification, failure boundaries, Issue #16 eligibility, and the no-active-enforcement scope boundary.
+
+- [ ] **Step 3: Run GitHub Actions and report only checks that actually ran.**
+
+Repository-wide pre-commit is authoritative. Do not claim pytest ran unless the workflow shows it.
+
+- [ ] **Step 4: Fix CI within scope and re-verify semantics.**
+
+Any CI repair that changes experiment interpretation must first be logged on Issue #15. Pure formatting/SPDX/type hygiene does not need issue-level noise.
+
+- [ ] **Step 5: Add final Issue #15 decision-log comment.**
+
+Link PR, structured JSON, report, handoff, final classifications, and ineligible regions.
+
+- [ ] **Step 6: Stop before merge and request fresh explicit authorization.**
+
+No prior design/implementation/PR/CI authorization counts as merge authorization.
 
 ---
 
-### Task 15: Deliver through GitHub, run authoritative CI, and keep merge gated by explicit authorization
+## Self-Review Coverage Map
 
-**Files:**
-- GitHub branch/PR metadata plus the exact verified file contents from the Pod worktree.
-
-**Interfaces:**
-- Consumes: verified local commits/content and final artifact checksums.
-- Produces: Draft PR against current `main`, CI evidence, and Issue #15 final decision-log comment.
-
-- [ ] **Step 1: Transfer verified content through the GitHub-authoritative path**
-
-Use the established content-addressed handoff pattern from Issue #14 if direct filesystem transfer is needed. Verify each delivered file's Git blob/content hash against the Pod version before opening the PR.
-
-- [ ] **Step 2: Open the feature PR as Draft**
-
-The PR body should include `Closes #15` only when all close criteria are present. Draft state does not authorize merge.
-
-Summarize:
-
-- frozen-profile-first semantics;
-- selected C-load concurrency or no-contention outcome;
-- 14B model-scale evidence;
-- fixed-profile accuracy/error comparison;
-- transfer/scale/shape classification;
-- failure boundaries and Issue #16 eligibility;
-- exact scope boundary: no active enforcement.
-
-- [ ] **Step 3: Run GitHub Actions and treat repository-wide pre-commit as authoritative**
-
-Do not claim CI ran pytest unless the actual workflow does so. Report exact checks/runs that exist.
-
-- [ ] **Step 4: Fix CI only within Issue #15 scope and re-verify semantics**
-
-Any CI repair that changes experimental interpretation is a material change and must first be logged on Issue #15. Formatting/SPDX/type hygiene that does not alter interpretation does not require issue noise.
-
-- [ ] **Step 5: Add the final Issue #15 decision-log comment**
-
-Link the Draft/ready PR, structured result path, validation report, Issue #16 handoff, final classifications, and any ineligible regions.
-
-- [ ] **Step 6: Do not merge without fresh explicit user authorization**
-
-Even with green CI and an approved result, stop before merge and request explicit authorization for this PR merge. Previous authorization to design, implement, comment, create a PR, or fix CI is not merge authorization.
-
----
-
-## Plan Self-Review Checklist
-
-Before execution begins, verify these mappings:
-
-- frozen Issue #14 profile identity -> Task 2;
-- runtime external tokens vs requested anchors -> Tasks 3 and 7;
-- fixed-profile holdout without derive/recalibrate -> Tasks 4 and 6;
-- high-confidence-only gate and insufficient evidence -> Task 4;
-- one-scalar diagnostic without overwriting primary evidence -> Task 5 and Task 13;
-- workload fairness and actual restore provenance -> Task 7;
-- minimum C2/C4/C8 contention selection -> Task 11;
-- separate CPU-primary vs filesystem capacities/tier paths -> Tasks 8, 10, 12;
-- model-scale axis Qwen2.5-14B/C1 -> Tasks 8, 10, 12;
-- five formal anchors -> Tasks 8 and 12;
-- failure-boundary-only refinement -> Task 13;
-- structured results, validation report, transferable/environment-specific classification -> Task 14;
-- bounded Issue #16 eligibility -> Task 14;
-- Issue comment decision journal -> Tasks 10, 11, 13, 15;
-- no active enforcement and explicit merge authorization -> Global Constraints and Task 15.
+- Frozen Issue #14 profile identity: Task 2.
+- Runtime external tokens versus requested anchors: Tasks 3 and 7.
+- Frozen holdout without derive/recalibrate: Tasks 4 and 6.
+- High-confidence gate and `insufficient_evidence`: Task 4.
+- One-scalar diagnostic without rewriting primary evidence: Tasks 5 and 13.
+- Workload fairness and actual restore provenance: Task 7.
+- Pre-registered config/tier capacities: Tasks 8 and 10.
+- Minimum C2/C4/C8 contention selection: Task 11.
+- Qwen2.5-14B/C1 model-scale axis: Tasks 8, 10, and 12.
+- Five formal anchors: Tasks 8 and 12.
+- Boundary-only refinement: Task 13.
+- Machine-readable results and validation report: Task 14.
+- Transferable/environment-specific/missing-feature classification: Tasks 5, 13, and 14.
+- Bounded Issue #16 eligibility: Task 14.
+- Issue comment decision journal: Tasks 10, 11, 13, and 15.
+- No active enforcement and explicit merge authorization: Global Constraints and Task 15.
