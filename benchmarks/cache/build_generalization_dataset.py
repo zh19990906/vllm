@@ -125,6 +125,16 @@ def _external_kv_tokens(record: dict[str, Any]) -> int:
 
 
 def _cpu_to_gpu_bytes(record: dict[str, Any]) -> int:
+    directional = _metric_delta_sum(
+        record,
+        base_name="vllm:kv_offload_size_sum",
+        required_label_fragment='transfer_type="CPU_to_GPU"',
+    )
+    if directional > 0:
+        return int(directional)
+
+    # Compatibility with older/synthetic artifacts that exposed
+    # load-specific byte counters without a transfer_type label.
     return int(
         _metric_delta_sum(
             record,
@@ -134,6 +144,16 @@ def _cpu_to_gpu_bytes(record: dict[str, Any]) -> int:
 
 
 def _cpu_to_gpu_transfers(record: dict[str, Any]) -> int:
+    directional = _metric_delta_sum(
+        record,
+        base_name="vllm:kv_offload_size_count",
+        required_label_fragment='transfer_type="CPU_to_GPU"',
+    )
+    if directional > 0:
+        return int(directional)
+
+    # Compatibility with older/synthetic artifacts that exposed
+    # load-specific counters without a transfer_type label.
     return int(
         _metric_delta_sum(
             record,

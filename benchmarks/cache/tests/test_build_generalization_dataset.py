@@ -1139,3 +1139,100 @@ class GeneralizationDatasetMultiAnchorTests(unittest.TestCase):
             )
 
         self.assertEqual(actual, expected)
+
+
+class GeneralizationDatasetDirectionalTransferMetricTests(unittest.TestCase):
+    def test_accepts_directional_cpu_to_gpu_transfer_metrics(
+        self,
+    ) -> None:
+        from benchmarks.cache.build_generalization_dataset import (
+            build_generalization_dataset,
+        )
+
+        def use_runtime_directional_metrics(
+            run_dir: Path,
+        ) -> None:
+            def mutate(record: dict) -> None:
+                delta = record["normalized"]["prometheus"]["delta"]
+
+                # Remove the legacy Issue #15 fixture metrics.
+                for key in list(delta):
+                    base = key.split("{", 1)[0]
+                    if base in {
+                        "vllm:kv_offload_load_size_count",
+                        "vllm:kv_offload_load_bytes",
+                    }:
+                        del delta[key]
+
+                # Current runtime schema: histogram count/sum
+                # labeled by transfer direction.
+                delta[
+                    "vllm:kv_offload_size_count{"
+                    'engine="0",model_name="qwen2.5-14b",'
+                    'transfer_type="CPU_to_GPU"}'
+                ] = {
+                    "value": 8,
+                    "reason": None,
+                }
+                delta[
+                    "vllm:kv_offload_size_sum{"
+                    'engine="0",model_name="qwen2.5-14b",'
+                    'transfer_type="CPU_to_GPU"}'
+                ] = {
+                    "value": 106430464,
+                    "reason": None,
+                }
+
+                # Direction filter is load-bearing: these values
+                # must not be counted as restore evidence.
+                delta[
+                    "vllm:kv_offload_size_count{"
+                    'engine="0",model_name="qwen2.5-14b",'
+                    'transfer_type="GPU_to_CPU"}'
+                ] = {
+                    "value": 99,
+                    "reason": None,
+                }
+                delta[
+                    "vllm:kv_offload_size_sum{"
+                    'engine="0",model_name="qwen2.5-14b",'
+                    'transfer_type="GPU_to_CPU"}'
+                ] = {
+                    "value": 999999999,
+                    "reason": None,
+                }
+
+            _rewrite_only_record(run_dir, mutate)
+
+        with TemporaryDirectory() as tmp:
+            recompute, cpu, filesystem = _build_three_runs(Path(tmp))
+
+            use_runtime_directional_metrics(cpu)
+            use_runtime_directional_metrics(filesystem)
+
+            result = build_generalization_dataset(
+                condition_id="c-model",
+                recompute_run=recompute,
+                cpu_run=cpu,
+                filesystem_run=filesystem,
+                percentile="p95",
+            )
+
+        self.assertEqual(result["excluded_samples"], [])
+        self.assertEqual(len(result["samples"]), 2)
+
+        samples = {row["source"]: row for row in result["samples"]}
+
+        for source in (
+            "cpu_primary",
+            "secondary:filesystem",
+        ):
+            evidence = samples[source]["transfer_evidence"]
+            self.assertEqual(
+                evidence["cpu_to_gpu_transfers"],
+                8,
+            )
+            self.assertEqual(
+                evidence["cpu_to_gpu_bytes"],
+                106430464,
+            )
