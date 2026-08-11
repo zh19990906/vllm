@@ -111,7 +111,7 @@ Deferred unless the selected minimal matrix leaves a specific hypothesis unresol
 
 ### C0: control
 
-Reuse checked-in Issue #13/#14 evidence for Qwen2.5-7B-Instruct, GPU0, concurrency=1.
+Reuse checked-in Issue #13/#14 evidence for Qwen2.5-7B-Instruct, GPU0, concurrency=1, tensor parallel size 1.
 
 Do not repeat the complete baseline sweep.
 
@@ -123,13 +123,16 @@ Hold constant:
 
 - model: Qwen2.5-7B-Instruct;
 - GPU: GPU0;
+- tensor parallel size: 1;
 - machine and tier configuration.
 
 Probe concurrency in this fixed order:
 
 `2 -> 4 -> 8`
 
-Use one inexpensive pre-registered sentinel anchor. The first concurrency that satisfies the contention criterion becomes the only formal C-load concurrency.
+The load-selection sentinel is fixed at **1024 requested prompt tokens**. Compare each candidate against a same-session concurrency=1 sentinel at the same requested anchor and with the same tier/workload lifecycle.
+
+The first concurrency that satisfies the contention criterion becomes the only formal C-load concurrency.
 
 Contention criterion relative to the same-session concurrency=1 sentinel:
 
@@ -147,6 +150,7 @@ Use:
 
 - model: Qwen2.5-14B-Instruct;
 - GPU: GPU0;
+- tensor parallel size: 1;
 - concurrency=1;
 - the same benchmark lifecycle and tier definitions as the control where feasible.
 
@@ -223,12 +227,15 @@ This prevents a tier with more samples from dominating the aggregate.
 
 ## Fixed-profile transfer gate
 
-A new condition is classified as `fixed_profile_transfer_pass` only if all of the following hold for high-confidence samples:
+A new condition is classified as `fixed_profile_transfer_pass` only if all of the following hold for valid high-confidence samples:
 
-1. decision accuracy >= 95%;
-2. principal macro-MAPE <= 15%;
-3. no principal curve has MAPE > 20%;
-4. there is no incorrect high-confidence decision whose actual absolute restore-minus-recompute margin is > 1 ms.
+1. each of the three principal curves has at least one valid high-confidence formal sample;
+2. decision accuracy >= 95%;
+3. principal macro-MAPE <= 15%;
+4. no principal curve has MAPE > 20%;
+5. there is no incorrect high-confidence decision whose actual absolute restore-minus-recompute margin is > 1 ms.
+
+If any principal curve has zero valid high-confidence formal samples, classify the condition as `insufficient_evidence` rather than transfer pass, even if the available decisions are correct.
 
 The 15% macro-MAPE and 95% decision-accuracy thresholds preserve the Issue #14 gate. The additional 20% per-curve cap prevents one badly transferred curve from being hidden by the macro average.
 
@@ -305,14 +312,14 @@ Before formal measurements:
 2. preserve the three intentional local YAML files in `/code/vllm`;
 3. recapture GPU UUID, GPU topology, CPU/NUMA, memory, filesystem, model path, and relevant software/version provenance;
 4. verify GPU0 identity against control provenance;
-5. run a minimal 7B/C1 sentinel to detect obvious session drift;
+5. run the 7B/C1 1024-requested-token sentinel to detect obvious session drift;
 6. preflight Qwen2.5-14B-Instruct loading and deterministic workload generation for the formal anchors.
 
 Sentinel data are operational validity checks and do not enter the fixed-profile generalization aggregate.
 
 ### Phase 1: C-load selection
 
-Probe the pre-registered concurrency candidates with the single sentinel anchor.
+Probe the pre-registered concurrency candidates using the 1024-requested-token sentinel.
 
 Choose the first candidate meeting the material-contention criterion. Stop the search at that point.
 
@@ -352,7 +359,9 @@ Each formal sample should include at least:
 - GPU UUID and visible GPU count;
 - concurrency and request-load controls;
 - requested prompt tokens;
-- runtime external KV tokens;
+- requests per case;
+- runtime external KV tokens total;
+- runtime external KV tokens per request used by the cost model;
 - source tier;
 - percentile;
 - actual recompute latency;
