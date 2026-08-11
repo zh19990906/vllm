@@ -263,3 +263,511 @@ class GeneralizationConditionValidationTests(unittest.TestCase):
                 load_generalization_condition(path, percentile="p90")
         finally:
             tempdir.cleanup()
+
+
+class FrozenConditionEvaluationTests(unittest.TestCase):
+    def test_evaluation_preserves_wrong_supplied_profile_prediction(
+        self,
+    ) -> None:
+        from copy import deepcopy
+        from tempfile import TemporaryDirectory
+
+        from benchmarks.cache.cost_model_calibration import (
+            load_profile_artifact,
+        )
+        from benchmarks.cache.cost_model_generalization import (
+            evaluate_frozen_condition,
+            load_generalization_condition,
+        )
+
+        payload = _generalization_condition_fixture()
+
+        with TemporaryDirectory() as tmp:
+            condition_path = Path(tmp) / "condition.json"
+            condition_path.write_text(
+                json.dumps(payload),
+                encoding="utf-8",
+            )
+            condition = load_generalization_condition(condition_path)
+
+        frozen_path = (
+            _REPO_ROOT
+            / "benchmarks/cache/profiles/"
+            "issue14-shadow-cost-calibrated.json"
+        )
+        profile = deepcopy(load_profile_artifact(frozen_path))
+
+        # Deliberately make the supplied CPU restore prediction wrong.
+        # Holdout evaluation must preserve this wrong prediction rather than
+        # deriving a new curve from the condition data.
+        profile["profile"]["tiers"]["cpu_primary"]["restore_ms"]["232"] = 50.0
+
+        result = evaluate_frozen_condition(
+            condition,
+            profile,
+            profile_identity="deliberately-wrong-fixture-profile",
+        )
+
+        self.assertEqual(result["mode"], "frozen_profile_holdout")
+        self.assertEqual(
+            result["profile_identity"],
+            "deliberately-wrong-fixture-profile",
+        )
+        self.assertNotIn("calibrated_profile", result)
+
+        cpu_row = next(
+            row
+            for row in result["evaluation"]["samples"]
+            if row["source"] == "cpu_primary"
+        )
+
+        self.assertEqual(cpu_row["actual_preferred"], "restore")
+        self.assertEqual(cpu_row["predicted_preferred"], "recompute")
+        self.assertFalse(cpu_row["decision_correct"])
+        self.assertAlmostEqual(cpu_row["predicted_restore_ms"], 50.0)
+
+
+def _synthetic_evaluation_row(
+    *,
+    source: str,
+    requested_tokens: int,
+    actual_recompute_ms: float = 100.0,
+    predicted_recompute_ms: float = 100.0,
+    actual_restore_ms: float,
+    predicted_restore_ms: float,
+    confidence: str = "high",
+) -> dict:
+    actual_margin_ms = actual_restore_ms - actual_recompute_ms
+    predicted_margin_ms = predicted_restore_ms - predicted_recompute_ms
+    actual_preferred = "restore" if actual_margin_ms < 0 else "recompute"
+    predicted_preferred = (
+        "restore" if predicted_margin_ms < 0 else "recompute"
+    )
+
+    return {
+        "source": source,
+        "requested_tokens": requested_tokens,
+        "external_tokens": requested_tokens,
+        "actual_recompute_ms": actual_recompute_ms,
+        "actual_restore_ms": actual_restore_ms,
+        "predicted_recompute_ms": predicted_recompute_ms,
+        "predicted_restore_ms": predicted_restore_ms,
+        "actual_margin_ms": actual_margin_ms,
+        "predicted_margin_ms": predicted_margin_ms,
+        "actual_preferred": actual_preferred,
+        "predicted_preferred": predicted_preferred,
+        "boundary_sensitive": abs(actual_margin_ms) <= 1.0,
+        "recompute_abs_error_ms": abs(
+            predicted_recompute_ms - actual_recompute_ms
+        ),
+        "recompute_relative_error": abs(
+            predicted_recompute_ms - actual_recompute_ms
+        )
+        / actual_recompute_ms,
+        "restore_abs_error_ms": abs(
+            predicted_restore_ms - actual_restore_ms
+        ),
+        "restore_relative_error": abs(
+            predicted_restore_ms - actual_restore_ms
+        )
+        / actual_restore_ms,
+        "decision_correct": predicted_preferred == actual_preferred,
+        "confidence": confidence,
+        "runtime_scale": 1.0,
+    }
+
+
+class FrozenTransferGateTests(unittest.TestCase):
+    def _evaluate_rows(self, rows: list[dict]) -> dict:
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        from benchmarks.cache.cost_model_generalization import (
+            evaluate_frozen_condition,
+            load_generalization_condition,
+        )
+
+        payload = _generalization_condition_fixture()
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "condition.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            condition = load_generalization_condition(path)
+
+        synthetic = {
+            "samples": rows,
+            "aggregate": {
+                "sentinel": "Issue 15 must recompute the high-confidence gate",
+            },
+        }
+
+        with patch(
+            "benchmarks.cache.cost_model_generalization.evaluate_profile",
+            return_value=synthetic,
+        ):
+            return evaluate_frozen_condition(
+                condition,
+                {"mode": "shadow", "profile": {}},
+                profile_identity="synthetic-frozen-profile",
+            )
+
+    def test_all_principal_curves_passing_returns_transfer_pass(self) -> None:
+        rows = [
+            _synthetic_evaluation_row(
+                source="cpu_primary",
+                requested_tokens=256,
+                predicted_recompute_ms=105.0,
+                actual_restore_ms=80.0,
+                predicted_restore_ms=84.0,
+            ),
+            _synthetic_evaluation_row(
+                source="secondary:filesystem",
+                requested_tokens=256,
+                predicted_recompute_ms=105.0,
+                actual_restore_ms=120.0,
+                predicted_restore_ms=126.0,
+            ),
+        ]
+
+        result = self._evaluate_rows(rows)
+
+        self.assertEqual(
+            result["classification"],
+            "fixed_profile_transfer_pass",
+        )
+        gate = result["gate"]["high_confidence"]
+        self.assertEqual(gate["decision_correct"], 2)
+        self.assertEqual(gate["decision_total"], 2)
+        self.assertEqual(gate["decision_accuracy"], 1.0)
+        self.assertAlmostEqual(gate["recompute_mape_percent"], 5.0)
+        self.assertAlmostEqual(gate["cpu_restore_mape_percent"], 5.0)
+        self.assertAlmostEqual(
+            gate["tiered_fs_restore_mape_percent"],
+            5.0,
+        )
+        self.assertAlmostEqual(
+            gate["principal_macro_mape_percent"],
+            5.0,
+        )
+
+    def test_missing_principal_high_confidence_evidence_is_insufficient(
+        self,
+    ) -> None:
+        rows = [
+            _synthetic_evaluation_row(
+                source="cpu_primary",
+                requested_tokens=256,
+                actual_restore_ms=80.0,
+                predicted_restore_ms=80.0,
+                confidence="low",
+            ),
+            _synthetic_evaluation_row(
+                source="secondary:filesystem",
+                requested_tokens=256,
+                actual_restore_ms=120.0,
+                predicted_restore_ms=120.0,
+                confidence="high",
+            ),
+        ]
+
+        result = self._evaluate_rows(rows)
+
+        self.assertEqual(
+            result["classification"],
+            "insufficient_evidence",
+        )
+        self.assertIn(
+            "cpu_restore",
+            result["gate"]["missing_principal_curves"],
+        )
+
+    def test_single_curve_over_twenty_percent_fails_even_if_macro_passes(
+        self,
+    ) -> None:
+        rows = [
+            _synthetic_evaluation_row(
+                source="cpu_primary",
+                requested_tokens=256,
+                actual_restore_ms=80.0,
+                predicted_restore_ms=96.8,
+            ),
+            _synthetic_evaluation_row(
+                source="secondary:filesystem",
+                requested_tokens=256,
+                actual_restore_ms=120.0,
+                predicted_restore_ms=120.0,
+            ),
+        ]
+
+        result = self._evaluate_rows(rows)
+
+        gate = result["gate"]["high_confidence"]
+        self.assertLessEqual(
+            gate["principal_macro_mape_percent"],
+            15.0,
+        )
+        self.assertGreater(
+            gate["cpu_restore_mape_percent"],
+            20.0,
+        )
+        self.assertEqual(
+            result["classification"],
+            "fixed_profile_transfer_fail",
+        )
+        self.assertIn(
+            "principal_curve_mape",
+            result["gate"]["failure_reasons"],
+        )
+
+    def test_clear_margin_wrong_decision_fails_at_exact_95_percent_accuracy(
+        self,
+    ) -> None:
+        rows = []
+        for anchor in range(1, 11):
+            requested = anchor * 128
+            rows.append(
+                _synthetic_evaluation_row(
+                    source="cpu_primary",
+                    requested_tokens=requested,
+                    actual_restore_ms=80.0,
+                    predicted_restore_ms=80.0,
+                )
+            )
+            rows.append(
+                _synthetic_evaluation_row(
+                    source="secondary:filesystem",
+                    requested_tokens=requested,
+                    actual_restore_ms=120.0,
+                    predicted_restore_ms=120.0,
+                )
+            )
+
+        rows[0] = _synthetic_evaluation_row(
+            source="cpu_primary",
+            requested_tokens=128,
+            actual_restore_ms=98.0,
+            predicted_restore_ms=102.0,
+        )
+
+        result = self._evaluate_rows(rows)
+
+        gate = result["gate"]["high_confidence"]
+        self.assertEqual(gate["decision_correct"], 19)
+        self.assertEqual(gate["decision_total"], 20)
+        self.assertAlmostEqual(gate["decision_accuracy"], 0.95)
+        self.assertEqual(
+            result["classification"],
+            "fixed_profile_transfer_fail",
+        )
+        self.assertEqual(
+            result["gate"]["clear_margin_wrong_decisions"],
+            1,
+        )
+        self.assertIn(
+            "clear_margin_wrong_decision",
+            result["gate"]["failure_reasons"],
+        )
+
+    def test_boundary_wrong_decision_still_counts_in_accuracy(self) -> None:
+        rows = []
+        for anchor in range(1, 11):
+            requested = anchor * 128
+            rows.append(
+                _synthetic_evaluation_row(
+                    source="cpu_primary",
+                    requested_tokens=requested,
+                    actual_restore_ms=80.0,
+                    predicted_restore_ms=80.0,
+                )
+            )
+            rows.append(
+                _synthetic_evaluation_row(
+                    source="secondary:filesystem",
+                    requested_tokens=requested,
+                    actual_restore_ms=120.0,
+                    predicted_restore_ms=120.0,
+                )
+            )
+
+        rows[0] = _synthetic_evaluation_row(
+            source="cpu_primary",
+            requested_tokens=128,
+            actual_restore_ms=99.5,
+            predicted_restore_ms=100.5,
+        )
+
+        result = self._evaluate_rows(rows)
+
+        gate = result["gate"]["high_confidence"]
+        self.assertEqual(gate["decision_correct"], 19)
+        self.assertEqual(gate["decision_total"], 20)
+        self.assertAlmostEqual(gate["decision_accuracy"], 0.95)
+        self.assertEqual(
+            result["gate"]["clear_margin_wrong_decisions"],
+            0,
+        )
+        self.assertEqual(
+            result["classification"],
+            "fixed_profile_transfer_pass",
+        )
+
+    def test_low_confidence_rows_are_reported_but_do_not_fill_evidence(
+        self,
+    ) -> None:
+        rows = [
+            _synthetic_evaluation_row(
+                source="cpu_primary",
+                requested_tokens=256,
+                actual_restore_ms=80.0,
+                predicted_restore_ms=80.0,
+                confidence="high",
+            ),
+            _synthetic_evaluation_row(
+                source="secondary:filesystem",
+                requested_tokens=256,
+                actual_restore_ms=120.0,
+                predicted_restore_ms=120.0,
+                confidence="low",
+            ),
+        ]
+
+        result = self._evaluate_rows(rows)
+
+        self.assertEqual(
+            result["classification"],
+            "insufficient_evidence",
+        )
+        self.assertEqual(len(result["low_confidence_samples"]), 1)
+        self.assertEqual(
+            result["low_confidence_samples"][0]["source"],
+            "secondary:filesystem",
+        )
+        self.assertIn(
+            "tiered_fs_restore",
+            result["gate"]["missing_principal_curves"],
+        )
+
+
+def _diagnostic_row(
+    *,
+    source: str,
+    requested_tokens: int,
+    external_tokens: int,
+    actual_recompute_ms: float,
+    predicted_recompute_ms: float,
+    actual_restore_ms: float,
+    predicted_restore_ms: float,
+) -> dict:
+    return {
+        "source": source,
+        "requested_tokens": requested_tokens,
+        "external_tokens": external_tokens,
+        "actual_recompute_ms": actual_recompute_ms,
+        "predicted_recompute_ms": predicted_recompute_ms,
+        "actual_restore_ms": actual_restore_ms,
+        "predicted_restore_ms": predicted_restore_ms,
+        "confidence": "high",
+    }
+
+
+class CurveScalingDiagnosticsTests(unittest.TestCase):
+    def test_diagnostics_distinguish_transfer_scale_and_shape(self) -> None:
+        from benchmarks.cache.cost_model_generalization import (
+            diagnose_curve_scaling,
+        )
+
+        evaluation = {
+            "classification": "fixed_profile_transfer_fail",
+            "evaluation": {
+                "samples": [
+                    # Recompute: a stable 5% error -> directly transferable.
+                    _diagnostic_row(
+                        source="cpu_primary",
+                        requested_tokens=256,
+                        external_tokens=232,
+                        actual_recompute_ms=100.0,
+                        predicted_recompute_ms=95.0,
+                        actual_restore_ms=100.0,
+                        predicted_restore_ms=50.0,
+                    ),
+                    _diagnostic_row(
+                        source="secondary:filesystem",
+                        requested_tokens=256,
+                        external_tokens=232,
+                        actual_recompute_ms=100.0,
+                        predicted_recompute_ms=95.0,
+                        actual_restore_ms=100.0,
+                        predicted_restore_ms=100.0,
+                    ),
+                    _diagnostic_row(
+                        source="cpu_primary",
+                        requested_tokens=1024,
+                        external_tokens=1024,
+                        actual_recompute_ms=200.0,
+                        predicted_recompute_ms=190.0,
+                        actual_restore_ms=200.0,
+                        predicted_restore_ms=100.0,
+                    ),
+                    _diagnostic_row(
+                        source="secondary:filesystem",
+                        requested_tokens=1024,
+                        external_tokens=1024,
+                        actual_recompute_ms=200.0,
+                        predicted_recompute_ms=190.0,
+                        actual_restore_ms=200.0,
+                        predicted_restore_ms=100.0,
+                    ),
+                ],
+            },
+        }
+
+        before = json.dumps(evaluation, sort_keys=True)
+        diagnostics = diagnose_curve_scaling(evaluation)
+        after = json.dumps(evaluation, sort_keys=True)
+
+        # Diagnostics are observational only; they must not mutate the
+        # fixed-profile result or replace its primary classification.
+        self.assertEqual(before, after)
+        self.assertEqual(
+            evaluation["classification"],
+            "fixed_profile_transfer_fail",
+        )
+
+        recompute = diagnostics["curves"]["recompute"]
+        self.assertAlmostEqual(recompute["raw_mape_percent"], 5.0)
+        self.assertAlmostEqual(
+            recompute["scale"],
+            100.0 / 95.0,
+        )
+        self.assertAlmostEqual(
+            recompute["residual_mape_percent"],
+            0.0,
+        )
+        self.assertEqual(
+            recompute["classification"],
+            "transferable",
+        )
+
+        cpu = diagnostics["curves"]["cpu_restore"]
+        self.assertAlmostEqual(cpu["raw_mape_percent"], 50.0)
+        self.assertAlmostEqual(cpu["scale"], 2.0)
+        self.assertAlmostEqual(cpu["residual_mape_percent"], 0.0)
+        self.assertEqual(
+            cpu["classification"],
+            "environment_specific_scale_candidate",
+        )
+
+        filesystem = diagnostics["curves"]["tiered_fs_restore"]
+        self.assertAlmostEqual(
+            filesystem["raw_mape_percent"],
+            25.0,
+        )
+        self.assertAlmostEqual(filesystem["scale"], 1.5)
+        self.assertAlmostEqual(
+            filesystem["residual_mape_percent"],
+            37.5,
+        )
+        self.assertEqual(
+            filesystem["classification"],
+            "curve_shape_or_missing_feature",
+        )
