@@ -357,6 +357,7 @@ def test_recompute_mape_counts_unique_requested_anchors_once(
         + aggregate["cpu_restore_mape_percent"]
         + aggregate["tiered_fs_restore_mape_percent"]
     ) / 3.0
+
     assert aggregate["principal_macro_mape_percent"] == pytest.approx(expected)
 
 
