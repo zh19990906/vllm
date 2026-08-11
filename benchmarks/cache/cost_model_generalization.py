@@ -67,8 +67,7 @@ def load_generalization_condition(
             or type(per_request_external_tokens) is not int
             or total_external_tokens <= 0
             or per_request_external_tokens <= 0
-            or total_external_tokens
-            != requests_per_case * per_request_external_tokens
+            or total_external_tokens != requests_per_case * per_request_external_tokens
         ):
             raise ValueError(
                 "external KV token total must equal "
@@ -81,19 +80,13 @@ def load_generalization_condition(
                 source=source,
                 requested_tokens=int(row["requested_tokens"]),
                 external_tokens=per_request_external_tokens,
-                actual_recompute_ms=float(
-                    latency["recompute"][percentile]
-                ),
-                actual_restore_ms=float(
-                    latency["restore"][percentile]
-                ),
+                actual_recompute_ms=float(latency["recompute"][percentile]),
+                actual_restore_ms=float(latency["restore"][percentile]),
             )
         )
         sample_metadata.append(dict(row))
 
-    excluded_samples = tuple(
-        dict(item) for item in raw.get("excluded_samples", [])
-    )
+    excluded_samples = tuple(dict(item) for item in raw.get("excluded_samples", []))
 
     dataset = CalibrationDataset(
         percentile=cast(Percentile, percentile),
@@ -122,14 +115,12 @@ def load_generalization_condition(
         gpu_uuid=str(condition["gpu_uuid"]),
         environment_artifact=str(condition["environment_artifact"]),
         run_directories={
-            str(key): str(value)
-            for key, value in condition["run_directories"].items()
+            str(key): str(value) for key, value in condition["run_directories"].items()
         },
         dataset=dataset,
         sample_metadata=tuple(sample_metadata),
         excluded_samples=excluded_samples,
     )
-
 
 
 DECISION_ACCURACY_MIN = 0.95
@@ -147,9 +138,7 @@ def _mape_percent(relative_errors: list[float]) -> float | None:
 def _build_high_confidence_gate(
     rows: list[dict[str, Any]],
 ) -> tuple[str, dict[str, Any]]:
-    high_confidence = [
-        row for row in rows if row.get("confidence") == "high"
-    ]
+    high_confidence = [row for row in rows if row.get("confidence") == "high"]
 
     recompute_by_key: dict[
         tuple[int, int],
@@ -167,14 +156,10 @@ def _build_high_confidence_gate(
         )
         previous = recompute_by_key.get(key)
         if previous is not None and previous != value:
-            raise ValueError(
-                f"inconsistent recompute scoring for anchor {key}"
-            )
+            raise ValueError(f"inconsistent recompute scoring for anchor {key}")
         recompute_by_key[key] = value
 
-    recompute_errors = [
-        value[2] for value in recompute_by_key.values()
-    ]
+    recompute_errors = [value[2] for value in recompute_by_key.values()]
     cpu_restore_errors = [
         float(row["restore_relative_error"])
         for row in high_confidence
@@ -188,9 +173,7 @@ def _build_high_confidence_gate(
 
     recompute_mape = _mape_percent(recompute_errors)
     cpu_restore_mape = _mape_percent(cpu_restore_errors)
-    filesystem_restore_mape = _mape_percent(
-        filesystem_restore_errors
-    )
+    filesystem_restore_mape = _mape_percent(filesystem_restore_errors)
 
     missing_principal_curves: list[str] = []
     if recompute_mape is None:
@@ -201,15 +184,8 @@ def _build_high_confidence_gate(
         missing_principal_curves.append("tiered_fs_restore")
 
     decision_total = len(high_confidence)
-    decision_correct = sum(
-        bool(row["decision_correct"])
-        for row in high_confidence
-    )
-    decision_accuracy = (
-        decision_correct / decision_total
-        if decision_total
-        else 0.0
-    )
+    decision_correct = sum(bool(row["decision_correct"]) for row in high_confidence)
+    decision_accuracy = decision_correct / decision_total if decision_total else 0.0
 
     principal_macro_mape = None
     if not missing_principal_curves:
@@ -217,16 +193,13 @@ def _build_high_confidence_gate(
         assert cpu_restore_mape is not None
         assert filesystem_restore_mape is not None
         principal_macro_mape = (
-            recompute_mape
-            + cpu_restore_mape
-            + filesystem_restore_mape
+            recompute_mape + cpu_restore_mape + filesystem_restore_mape
         ) / 3.0
 
     clear_margin_wrong_decisions = sum(
         (
             not bool(row["decision_correct"])
-            and abs(float(row["actual_margin_ms"]))
-            > BOUNDARY_MARGIN_MS
+            and abs(float(row["actual_margin_ms"])) > BOUNDARY_MARGIN_MS
         )
         for row in high_confidence
     )
@@ -255,9 +228,7 @@ def _build_high_confidence_gate(
         ):
             failure_reasons.append("principal_curve_mape")
         if clear_margin_wrong_decisions:
-            failure_reasons.append(
-                "clear_margin_wrong_decision"
-            )
+            failure_reasons.append("clear_margin_wrong_decision")
 
         classification = (
             "fixed_profile_transfer_fail"
@@ -268,12 +239,8 @@ def _build_high_confidence_gate(
     gate = {
         "thresholds": {
             "decision_accuracy_min": DECISION_ACCURACY_MIN,
-            "principal_macro_mape_percent_max": (
-                PRINCIPAL_MACRO_MAPE_MAX
-            ),
-            "principal_curve_mape_percent_max": (
-                PRINCIPAL_CURVE_MAPE_MAX
-            ),
+            "principal_macro_mape_percent_max": (PRINCIPAL_MACRO_MAPE_MAX),
+            "principal_curve_mape_percent_max": (PRINCIPAL_CURVE_MAPE_MAX),
             "boundary_margin_ms": BOUNDARY_MARGIN_MS,
         },
         "high_confidence": {
@@ -281,25 +248,15 @@ def _build_high_confidence_gate(
             "decision_total": decision_total,
             "decision_accuracy": decision_accuracy,
             "recompute_sample_count": len(recompute_errors),
-            "cpu_restore_sample_count": len(
-                cpu_restore_errors
-            ),
-            "tiered_fs_restore_sample_count": len(
-                filesystem_restore_errors
-            ),
+            "cpu_restore_sample_count": len(cpu_restore_errors),
+            "tiered_fs_restore_sample_count": len(filesystem_restore_errors),
             "recompute_mape_percent": recompute_mape,
             "cpu_restore_mape_percent": cpu_restore_mape,
-            "tiered_fs_restore_mape_percent": (
-                filesystem_restore_mape
-            ),
-            "principal_macro_mape_percent": (
-                principal_macro_mape
-            ),
+            "tiered_fs_restore_mape_percent": (filesystem_restore_mape),
+            "principal_macro_mape_percent": (principal_macro_mape),
         },
         "missing_principal_curves": missing_principal_curves,
-        "clear_margin_wrong_decisions": (
-            clear_margin_wrong_decisions
-        ),
+        "clear_margin_wrong_decisions": (clear_margin_wrong_decisions),
         "failure_reasons": failure_reasons,
     }
     return classification, gate
@@ -325,12 +282,10 @@ def evaluate_frozen_condition(
         "classification": classification,
         "gate": gate,
         "low_confidence_samples": [
-            row for row in rows
-            if row.get("confidence") != "high"
+            row for row in rows if row.get("confidence") != "high"
         ],
         "evaluation": evaluation,
     }
-
 
 
 def _diagnose_curve(
@@ -347,27 +302,16 @@ def _diagnose_curve(
 
     for actual, predicted in points:
         if actual <= 0:
-            raise ValueError(
-                "diagnostic actual latency must be positive"
-            )
+            raise ValueError("diagnostic actual latency must be positive")
         if predicted <= 0:
-            raise ValueError(
-                "diagnostic predicted latency must be positive"
-            )
+            raise ValueError("diagnostic predicted latency must be positive")
 
     raw_mape = 100.0 * statistics.fmean(
-        abs(predicted - actual) / actual
-        for actual, predicted in points
+        abs(predicted - actual) / actual for actual, predicted in points
     )
-    scale = float(
-        statistics.median(
-            actual / predicted
-            for actual, predicted in points
-        )
-    )
+    scale = float(statistics.median(actual / predicted for actual, predicted in points))
     residual_mape = 100.0 * statistics.fmean(
-        abs(predicted * scale - actual) / actual
-        for actual, predicted in points
+        abs(predicted * scale - actual) / actual for actual, predicted in points
     )
 
     if raw_mape <= PRINCIPAL_MACRO_MAPE_MAX:
@@ -413,8 +357,7 @@ def diagnose_curve_scaling(
         previous = recompute_by_key.get(recompute_key)
         if previous is not None and previous != recompute_value:
             raise ValueError(
-                "inconsistent recompute diagnostics for anchor "
-                f"{recompute_key}"
+                f"inconsistent recompute diagnostics for anchor {recompute_key}"
             )
         recompute_by_key[recompute_key] = recompute_value
 
@@ -430,20 +373,12 @@ def diagnose_curve_scaling(
     return {
         "method": "median_actual_over_frozen_prediction_scalar",
         "thresholds": {
-            "raw_mape_percent_transferable_max": (
-                PRINCIPAL_MACRO_MAPE_MAX
-            ),
-            "scalar_residual_mape_percent_max": (
-                PRINCIPAL_MACRO_MAPE_MAX
-            ),
+            "raw_mape_percent_transferable_max": (PRINCIPAL_MACRO_MAPE_MAX),
+            "scalar_residual_mape_percent_max": (PRINCIPAL_MACRO_MAPE_MAX),
         },
         "curves": {
-            "recompute": _diagnose_curve(
-                list(recompute_by_key.values())
-            ),
+            "recompute": _diagnose_curve(list(recompute_by_key.values())),
             "cpu_restore": _diagnose_curve(cpu_restore),
-            "tiered_fs_restore": _diagnose_curve(
-                filesystem_restore
-            ),
+            "tiered_fs_restore": _diagnose_curve(filesystem_restore),
         },
     }

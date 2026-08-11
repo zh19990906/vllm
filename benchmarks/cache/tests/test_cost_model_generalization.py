@@ -9,20 +9,17 @@ from pathlib import Path
 
 from benchmarks.cache.cost_model_calibration import load_profile_artifact
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class FrozenProfileArtifactTests(unittest.TestCase):
     def test_issue14_frozen_profile_matches_calibration_result(self) -> None:
         calibration_path = (
-            _REPO_ROOT
-            / "docs/engineering/validation/"
+            _REPO_ROOT / "docs/engineering/validation/"
             "2026-08-10-issue14-shadow-cost-model-calibration.json"
         )
         artifact_path = (
-            _REPO_ROOT
-            / "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json"
+            _REPO_ROOT / "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json"
         )
 
         calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
@@ -291,9 +288,7 @@ class FrozenConditionEvaluationTests(unittest.TestCase):
             condition = load_generalization_condition(condition_path)
 
         frozen_path = (
-            _REPO_ROOT
-            / "benchmarks/cache/profiles/"
-            "issue14-shadow-cost-calibrated.json"
+            _REPO_ROOT / "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json"
         )
         profile = deepcopy(load_profile_artifact(frozen_path))
 
@@ -340,9 +335,7 @@ def _synthetic_evaluation_row(
     actual_margin_ms = actual_restore_ms - actual_recompute_ms
     predicted_margin_ms = predicted_restore_ms - predicted_recompute_ms
     actual_preferred = "restore" if actual_margin_ms < 0 else "recompute"
-    predicted_preferred = (
-        "restore" if predicted_margin_ms < 0 else "recompute"
-    )
+    predicted_preferred = "restore" if predicted_margin_ms < 0 else "recompute"
 
     return {
         "source": source,
@@ -357,19 +350,11 @@ def _synthetic_evaluation_row(
         "actual_preferred": actual_preferred,
         "predicted_preferred": predicted_preferred,
         "boundary_sensitive": abs(actual_margin_ms) <= 1.0,
-        "recompute_abs_error_ms": abs(
-            predicted_recompute_ms - actual_recompute_ms
-        ),
-        "recompute_relative_error": abs(
-            predicted_recompute_ms - actual_recompute_ms
-        )
+        "recompute_abs_error_ms": abs(predicted_recompute_ms - actual_recompute_ms),
+        "recompute_relative_error": abs(predicted_recompute_ms - actual_recompute_ms)
         / actual_recompute_ms,
-        "restore_abs_error_ms": abs(
-            predicted_restore_ms - actual_restore_ms
-        ),
-        "restore_relative_error": abs(
-            predicted_restore_ms - actual_restore_ms
-        )
+        "restore_abs_error_ms": abs(predicted_restore_ms - actual_restore_ms),
+        "restore_relative_error": abs(predicted_restore_ms - actual_restore_ms)
         / actual_restore_ms,
         "decision_correct": predicted_preferred == actual_preferred,
         "confidence": confidence,
@@ -784,20 +769,16 @@ class FrozenGeneralizationCliTests(unittest.TestCase):
 
         condition_payload = _generalization_condition_fixture()
         frozen_path = (
-            _REPO_ROOT
-            / "benchmarks/cache/profiles/"
-            "issue14-shadow-cost-calibrated.json"
+            _REPO_ROOT / "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json"
         )
-        frozen_artifact = json.loads(
-            frozen_path.read_text(encoding="utf-8")
-        )
+        frozen_artifact = json.loads(frozen_path.read_text(encoding="utf-8"))
 
         # Force a non-pass holdout while preserving the real frozen-profile
         # artifact shape accepted by load_profile_artifact().
         wrong_artifact = deepcopy(frozen_artifact)
-        wrong_artifact[
-            "cache_cost_model"
-        ]["profile"]["tiers"]["cpu_primary"]["restore_ms"]["232"] = 50.0
+        wrong_artifact["cache_cost_model"]["profile"]["tiers"]["cpu_primary"][
+            "restore_ms"
+        ]["232"] = 50.0
 
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -848,9 +829,7 @@ class FrozenGeneralizationCliTests(unittest.TestCase):
                 output_two.read_bytes(),
             )
 
-            result = json.loads(
-                output_one.read_text(encoding="utf-8")
-            )
+            result = json.loads(output_one.read_text(encoding="utf-8"))
             self.assertEqual(
                 result["mode"],
                 "frozen_profile_holdout",
@@ -878,8 +857,6 @@ class FrozenGeneralizationCliTests(unittest.TestCase):
             self.assertEqual(check_rc, 1)
             self.assertTrue(output_check.is_file())
             self.assertEqual(
-                json.loads(
-                    output_check.read_text(encoding="utf-8")
-                )["classification"],
+                json.loads(output_check.read_text(encoding="utf-8"))["classification"],
                 result["classification"],
             )

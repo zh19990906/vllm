@@ -90,10 +90,7 @@ def _environment() -> dict:
             "status": "available",
             "command": [
                 "nvidia-smi",
-                (
-                    "--query-gpu=index,uuid,name,"
-                    "memory.total,driver_version"
-                ),
+                ("--query-gpu=index,uuid,name,memory.total,driver_version"),
                 "--format=csv,noheader",
             ],
             "stdout": (
@@ -160,7 +157,7 @@ def _delta(
 ) -> dict:
     return {
         (
-            'vllm:prompt_tokens_by_source{'
+            "vllm:prompt_tokens_by_source{"
             'engine="0",model_name="qwen2.5-14b",'
             'source="external_kv_transfer"}'
         ): {
@@ -221,22 +218,10 @@ def _record(
             },
             "cache": {
                 "tiering_lookup_async_delay_seconds": {
-                    "value": (
-                        0.001 if tiered_async_count else None
-                    ),
-                    "sum": (
-                        0.008 if tiered_async_count else None
-                    ),
-                    "count": (
-                        tiered_async_count
-                        if tiered_async_count
-                        else None
-                    ),
-                    "reason": (
-                        None
-                        if tiered_async_count
-                        else "metric_not_exposed"
-                    ),
+                    "value": (0.001 if tiered_async_count else None),
+                    "sum": (0.008 if tiered_async_count else None),
+                    "count": (tiered_async_count if tiered_async_count else None),
+                    "reason": (None if tiered_async_count else "metric_not_exposed"),
                 },
             },
             "prometheus": {
@@ -357,10 +342,7 @@ class GeneralizationDatasetBuilderTests(unittest.TestCase):
         )
 
         self.assertEqual(len(result["samples"]), 2)
-        samples = {
-            sample["source"]: sample
-            for sample in result["samples"]
-        }
+        samples = {sample["source"]: sample for sample in result["samples"]}
 
         cpu = samples["cpu_primary"]
         self.assertEqual(cpu["requested_tokens"], 256)
@@ -383,9 +365,7 @@ class GeneralizationDatasetBuilderTests(unittest.TestCase):
             232,
         )
         self.assertEqual(
-            filesystem["transfer_evidence"][
-                "tiered_fs_async_lookups"
-            ],
+            filesystem["transfer_evidence"]["tiered_fs_async_lookups"],
             8,
         )
 
@@ -537,9 +517,7 @@ class GeneralizationDatasetValidationTests(unittest.TestCase):
 
             _rewrite_only_record(
                 cpu,
-                lambda record: record["normalized"]["prometheus"][
-                    "delta"
-                ].update(
+                lambda record: record["normalized"]["prometheus"]["delta"].update(
                     _delta(
                         external_tokens=0,
                         load_bytes=106430464,
@@ -580,9 +558,7 @@ class GeneralizationDatasetValidationTests(unittest.TestCase):
 
             _rewrite_only_record(
                 cpu,
-                lambda record: record["normalized"]["prometheus"][
-                    "delta"
-                ].update(
+                lambda record: record["normalized"]["prometheus"]["delta"].update(
                     _delta(
                         external_tokens=1856,
                         load_bytes=0,
@@ -713,6 +689,7 @@ class GeneralizationDatasetValidationTests(unittest.TestCase):
                 )
 
             for run in (cpu, filesystem):
+
                 def update_transfer(record: dict) -> None:
                     delta = record["normalized"]["prometheus"]["delta"]
                     delta.update(
@@ -738,10 +715,7 @@ class GeneralizationDatasetValidationTests(unittest.TestCase):
             3,
         )
         self.assertEqual(
-            {
-                row["external_kv_tokens_per_request"]
-                for row in result["samples"]
-            },
+            {row["external_kv_tokens_per_request"] for row in result["samples"]},
             {233},
         )
 
@@ -780,9 +754,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             recompute, cpu, filesystem = _build_three_runs(Path(tmp))
 
             def remove_visibility(payload: dict) -> None:
-                payload["config"]["server"]["env"].pop(
-                    "CUDA_VISIBLE_DEVICES"
-                )
+                payload["config"]["server"]["env"].pop("CUDA_VISIBLE_DEVICES")
 
             _rewrite_json(cpu / "manifest.json", remove_visibility)
 
@@ -808,9 +780,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
 
             _rewrite_json(
                 cpu / "manifest.json",
-                lambda payload: payload["config"]["server"][
-                    "env"
-                ].update(
+                lambda payload: payload["config"]["server"]["env"].update(
                     {"CUDA_VISIBLE_DEVICES": "0,1"}
                 ),
             )
@@ -837,9 +807,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
 
             _rewrite_json(
                 cpu / "manifest.json",
-                lambda payload: payload["config"]["server"][
-                    "env"
-                ].update(
+                lambda payload: payload["config"]["server"]["env"].update(
                     {"CUDA_VISIBLE_DEVICES": "9"}
                 ),
             )
@@ -935,9 +903,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
 
             _rewrite_only_record(
                 cpu,
-                lambda record: record["normalized"]["prometheus"][
-                    "delta"
-                ].update(
+                lambda record: record["normalized"]["prometheus"]["delta"].update(
                     _delta(
                         external_tokens=1857,
                         load_bytes=106430464,
@@ -971,24 +937,18 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
                 delta.update(
                     {
                         (
-                            'vllm:prompt_tokens_by_source{'
+                            "vllm:prompt_tokens_by_source{"
                             'engine="1",model_name="qwen2.5-14b",'
                             'source="external_kv_transfer"}'
                         ): {
                             "value": -8,
                             "reason": None,
                         },
-                        (
-                            'vllm:kv_offload_load_bytes{'
-                            'engine="1"}'
-                        ): {
+                        ('vllm:kv_offload_load_bytes{engine="1"}'): {
                             "value": -1024,
                             "reason": None,
                         },
-                        (
-                            'vllm:kv_offload_load_size_count{'
-                            'engine="1"}'
-                        ): {
+                        ('vllm:kv_offload_load_size_count{engine="1"}'): {
                             "value": -1,
                             "reason": None,
                         },
@@ -1006,9 +966,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             )
 
         cpu_sample = next(
-            row
-            for row in result["samples"]
-            if row["source"] == "cpu_primary"
+            row for row in result["samples"] if row["source"] == "cpu_primary"
         )
         self.assertEqual(
             cpu_sample["external_kv_tokens_total"],
@@ -1019,9 +977,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             232,
         )
         self.assertEqual(
-            cpu_sample["transfer_evidence"][
-                "cpu_to_gpu_transfers"
-            ],
+            cpu_sample["transfer_evidence"]["cpu_to_gpu_transfers"],
             8,
         )
         self.assertEqual(
@@ -1082,9 +1038,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertTrue(output.is_file())
 
-            payload = json.loads(
-                output.read_text(encoding="utf-8")
-            )
+            payload = json.loads(output.read_text(encoding="utf-8"))
             loaded = load_generalization_condition(output)
 
         self.assertEqual(payload["schema_version"], 1)

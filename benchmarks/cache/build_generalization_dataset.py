@@ -62,7 +62,6 @@ def _workload_hashes(
     )
 
 
-
 def _metric_delta_sum(
     record: dict[str, Any],
     *,
@@ -75,10 +74,7 @@ def _metric_delta_sum(
     for key, item in delta.items():
         if key.split("{", 1)[0] != base_name:
             continue
-        if (
-            required_label_fragment is not None
-            and required_label_fragment not in key
-        ):
+        if required_label_fragment is not None and required_label_fragment not in key:
             continue
 
         value = item.get("value")
@@ -119,27 +115,22 @@ def _cpu_to_gpu_transfers(record: dict[str, Any]) -> int:
     )
 
 
-
 def _tiered_fs_async_lookup_evidence(
     record: dict[str, Any],
 ) -> tuple[int, float]:
-    item = record["normalized"]["cache"][
-        "tiering_lookup_async_delay_seconds"
-    ]
+    item = record["normalized"]["cache"]["tiering_lookup_async_delay_seconds"]
 
     raw_count = item.get("count")
     raw_sum = item.get("sum")
 
     count = (
         int(raw_count)
-        if isinstance(raw_count, (int, float))
-        and not isinstance(raw_count, bool)
+        if isinstance(raw_count, (int, float)) and not isinstance(raw_count, bool)
         else 0
     )
     total_seconds = (
         float(raw_sum)
-        if isinstance(raw_sum, (int, float))
-        and not isinstance(raw_sum, bool)
+        if isinstance(raw_sum, (int, float)) and not isinstance(raw_sum, bool)
         else 0.0
     )
     return count, total_seconds
@@ -152,11 +143,8 @@ def _ttft(
 ) -> float:
     value = record["normalized"]["benchmark"]["ttft_ms"][percentile]
     if not isinstance(value, (int, float)):
-        raise ValueError(
-            f"missing numeric TTFT {percentile} for {record['case_id']}"
-        )
+        raise ValueError(f"missing numeric TTFT {percentile} for {record['case_id']}")
     return float(value)
-
 
 
 def _selected_gpu_index(
@@ -216,14 +204,11 @@ def _selected_gpu_uuid(
 
         gpu_uuid = parts[1].strip()
         if not gpu_uuid:
-            raise ValueError(
-                f"selected GPU index {selected_index} has no GPU UUID"
-            )
+            raise ValueError(f"selected GPU index {selected_index} has no GPU UUID")
         return gpu_uuid
 
     raise ValueError(
-        f"selected GPU index {selected_index} "
-        "not found in environment inventory"
+        f"selected GPU index {selected_index} not found in environment inventory"
     )
 
 
@@ -240,8 +225,7 @@ def _assert_same_case(
     ):
         if recompute[key] != restore[key]:
             raise ValueError(
-                f"paired run mismatch for {key}: "
-                f"{recompute[key]!r} != {restore[key]!r}"
+                f"paired run mismatch for {key}: {recompute[key]!r} != {restore[key]!r}"
             )
 
 
@@ -257,7 +241,6 @@ def _excluded_sample(
         "requested_tokens": restore_record.get("prompt_tokens"),
         "reason": reason,
     }
-
 
 
 def _build_sample(
@@ -302,9 +285,7 @@ def _build_sample(
         )
 
     if external_total % requests_per_case != 0:
-        raise ValueError(
-            "external KV tokens not divisible by requests_per_case"
-        )
+        raise ValueError("external KV tokens not divisible by requests_per_case")
 
     transfers = _cpu_to_gpu_transfers(restore_record)
     transfer_bytes = _cpu_to_gpu_bytes(restore_record)
@@ -321,9 +302,7 @@ def _build_sample(
     }
 
     if source == "secondary:filesystem":
-        async_count, async_sum = (
-            _tiered_fs_async_lookup_evidence(restore_record)
-        )
+        async_count, async_sum = _tiered_fs_async_lookup_evidence(restore_record)
         if async_count <= 0 or async_sum <= 0.0:
             return None, _excluded_sample(
                 source=source,
@@ -338,9 +317,7 @@ def _build_sample(
         "source": source,
         "requested_tokens": int(recompute_record["prompt_tokens"]),
         "external_kv_tokens_total": external_total,
-        "external_kv_tokens_per_request": (
-            external_total // requests_per_case
-        ),
+        "external_kv_tokens_per_request": (external_total // requests_per_case),
         "latency_ms": {
             "recompute": {
                 percentile: _ttft(
@@ -368,18 +345,12 @@ def _manifest_requests_per_case(
     manifest: dict[str, Any],
 ) -> int:
     try:
-        value = int(
-            manifest["config"]["workload"]["requests_per_case"]
-        )
+        value = int(manifest["config"]["workload"]["requests_per_case"])
     except (KeyError, TypeError, ValueError) as error:
-        raise ValueError(
-            "invalid requests_per_case in run manifest"
-        ) from error
+        raise ValueError("invalid requests_per_case in run manifest") from error
 
     if value <= 0:
-        raise ValueError(
-            "requests_per_case must be positive in run manifest"
-        )
+        raise ValueError("requests_per_case must be positive in run manifest")
     return value
 
 
@@ -395,29 +366,18 @@ def build_generalization_dataset(
     cpu_run = Path(cpu_run)
     filesystem_run = Path(filesystem_run)
 
-    recompute_manifest = _load_json(
-        recompute_run / "manifest.json"
-    )
+    recompute_manifest = _load_json(recompute_run / "manifest.json")
     cpu_manifest = _load_json(cpu_run / "manifest.json")
-    filesystem_manifest = _load_json(
-        filesystem_run / "manifest.json"
-    )
+    filesystem_manifest = _load_json(filesystem_run / "manifest.json")
 
     request_counts = {
-        "recompute": _manifest_requests_per_case(
-            recompute_manifest
-        ),
-        "cpu_primary": _manifest_requests_per_case(
-            cpu_manifest
-        ),
-        "secondary:filesystem": _manifest_requests_per_case(
-            filesystem_manifest
-        ),
+        "recompute": _manifest_requests_per_case(recompute_manifest),
+        "cpu_primary": _manifest_requests_per_case(cpu_manifest),
+        "secondary:filesystem": _manifest_requests_per_case(filesystem_manifest),
     }
     if len(set(request_counts.values())) != 1:
         raise ValueError(
-            "requests_per_case mismatch across manifests: "
-            f"{request_counts}"
+            f"requests_per_case mismatch across manifests: {request_counts}"
         )
     requests_per_case = next(iter(request_counts.values()))
 
@@ -443,9 +403,7 @@ def build_generalization_dataset(
     selected_indexes = {
         "recompute": _selected_gpu_index(recompute_manifest),
         "cpu_primary": _selected_gpu_index(cpu_manifest),
-        "secondary:filesystem": _selected_gpu_index(
-            filesystem_manifest
-        ),
+        "secondary:filesystem": _selected_gpu_index(filesystem_manifest),
     }
 
     selected_gpu_uuids = {
@@ -459,24 +417,19 @@ def build_generalization_dataset(
         ),
         "secondary:filesystem": _selected_gpu_uuid(
             filesystem_run,
-            selected_index=selected_indexes[
-                "secondary:filesystem"
-            ],
+            selected_index=selected_indexes["secondary:filesystem"],
         ),
     }
 
     if len(set(selected_indexes.values())) != 1:
         raise ValueError(
-            "paired runs use different selected GPU indexes: "
-            f"{selected_indexes}"
+            f"paired runs use different selected GPU indexes: {selected_indexes}"
         )
     gpu_index = next(iter(selected_indexes.values()))
 
     gpu_uuids = set(selected_gpu_uuids.values())
     if len(gpu_uuids) != 1:
-        raise ValueError(
-            f"paired runs use different GPU UUIDs: {sorted(gpu_uuids)}"
-        )
+        raise ValueError(f"paired runs use different GPU UUIDs: {sorted(gpu_uuids)}")
     gpu_uuid = next(iter(gpu_uuids))
 
     config = recompute_manifest["config"]
@@ -513,26 +466,18 @@ def build_generalization_dataset(
         "condition": {
             "id": condition_id,
             "model": str(config["model"]["id"]),
-            "served_model": str(
-                config["model"]["served_name"]
-            ),
+            "served_model": str(config["model"]["served_name"]),
             "concurrency": int(recompute["concurrency"]),
             "request_rate": recompute["request_rate"],
             "requests_per_case": requests_per_case,
-            "tensor_parallel_size": int(
-                config["parallelism"]["tensor_parallel_size"]
-            ),
+            "tensor_parallel_size": int(config["parallelism"]["tensor_parallel_size"]),
             "gpu_index": gpu_index,
             "gpu_uuid": gpu_uuid,
-            "environment_artifact": str(
-                recompute_run / "environment.json"
-            ),
+            "environment_artifact": str(recompute_run / "environment.json"),
             "run_directories": {
                 "recompute": str(recompute_run),
                 "cpu_primary": str(cpu_run),
-                "secondary:filesystem": str(
-                    filesystem_run
-                ),
+                "secondary:filesystem": str(filesystem_run),
             },
         },
         "samples": samples,

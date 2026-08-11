@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from benchmarks.cache.cost_model_calibration import load_profile_artifact
 from benchmarks.cache.cost_model_generalization import (
@@ -40,8 +40,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--check",
         action="store_true",
         help=(
-            "Return exit code 1 unless classification is "
-            "fixed_profile_transfer_pass."
+            "Return exit code 1 unless classification is fixed_profile_transfer_pass."
         ),
     )
     return parser
@@ -87,9 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
 
-    if args.check and (
-        result["classification"] != "fixed_profile_transfer_pass"
-    ):
+    if args.check and (result["classification"] != "fixed_profile_transfer_pass"):
         return 1
     return 0
 
