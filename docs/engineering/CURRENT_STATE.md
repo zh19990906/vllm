@@ -1,153 +1,176 @@
 # Current Engineering State
 
-Observed: **2026-08-10**.
+Observed: **2026-08-11**.
 
-This file is intentionally mutable. Verify remote metadata before acting on branch heads or
-PR status if this file is older than the current session.
+This file is intentionally mutable. Verify GitHub issue, PR, branch, and commit metadata
+before acting if this file is older than the current session.
 
 ## Repository state
 
 - Repository: `zh19990906/vllm`
 - Default branch: `main`
 - Current observed `main` head:
-  `37f65141108e112a317fe4a5d8215a4c21c3c00e`
-- That commit merged PR #7, `Add KV offload shadow cost model`.
+  `eae9e8b5803d2770a719a43b0020da0c275095e0`
+- That commit merged PR #27, which preserved the useful point-in-time history from
+  superseded PR #22 without merging its stale mutable roadmap state.
+- GitHub is the authoritative remote. The observed development workflow synchronizes
+  GitHub branches/tags to a Gitee mirror used by Pod workspaces.
+- Pod workspaces are for build/test/hardware validation and are not an authoritative
+  GitHub write path.
 
-## Recently completed work
+## Project objective
 
-### PR #3: cache workload fairness and convergence
+The long-term objective is an adaptive hierarchical KV cache system that can make runtime
+decisions from measured cost instead of treating every reusable KV as an unconditional
+restore win.
 
-- PR: `#3`
-- Branch: `fix/cache-workload-fairness`
-- Final head: `4fa33f8267de7cbc4d95208886de8e63f028cb3a`
-- Merge commit: `abc426ae063e90c837c48dfbe75fabe919c82575`
-- State: merged on 2026-08-07.
+The core decision chain is:
 
-PR #3 fixed two correctness problems in the cache benchmark workload generator:
-matching cache modes no longer receive different prompt bytes because of case-specific RNG
-identity, and token-length convergence no longer discards the entire suffix stream after
-every correction.
+```text
+measure restore vs recompute
+  -> calibrate shadow prediction
+  -> validate generalization
+  -> enable active restore/recompute choice
+  -> build multi-tier placement
+  -> build adaptive admission/eviction
+```
 
-See:
-[`history/2026-08-07-pr3-cache-workload-fairness-convergence.md`](history/2026-08-07-pr3-cache-workload-fairness-convergence.md).
+## Roadmap status
 
-### PR #7: KV offload shadow cost model
+Parent roadmap: **Issue #9**.
 
-- PR: `#7`
-- Branch: `feature/kv-offload-shadow-cost-model`
-- Final head: `96de0c823721c374527dbb0b3a49fdc7eccba341`
-- Merge commit: `37f65141108e112a317fe4a5d8215a4c21c3c00e`
-- State: merged on 2026-08-10.
+### Completed work
 
-The merged feature is shadow-only. It predicts restore versus recompute cost, records load
-provenance and low-cardinality metrics, and calibrates secondary-tier promotion cost with
-an online EWMA without changing the actual restore path. `mode: enforce` remains rejected.
+- **Issue #10**: workload fairness and token-length convergence, completed by PR #3.
+- **Issue #11**: real eviction/lower-tier restore benchmark, completed by PR #5.
+- **Issue #12**: shadow restore/recompute cost model, completed by PR #7.
+- **Issue #13**: systematic restore-vs-recompute crossover measurement, completed by
+  PR #25.
+- **Issue #14**: calibration of the shadow cost model from real measurements, completed by
+  PR #26.
+- **Issue #20**: repository `benchmarks/cache` pre-commit/static baseline cleanup,
+  completed.
 
-Final scoped validation included 59 focused tests, compile checks, targeted Ruff check and
-format check, `git diff --check`, Python 3.10-3.13 mypy CI, real scheduler integration, and
-hardware anchors. The p256 filesystem case showed an expected adaptive shadow crossover
-after runtime EWMA calibration; the actual path remained restore.
+### Current P0 core work
 
-See:
+**Issue #15 is the current primary research issue.**
 
-- [`history/2026-08-07-to-2026-08-10-pr7-shadow-cost-model.md`](history/2026-08-07-to-2026-08-10-pr7-shadow-cost-model.md)
-- [`validation/pr7-shadow-cost-model-hardware-validation.md`](validation/pr7-shadow-cost-model-hardware-validation.md)
+Issue #15 validates whether the calibrated shadow model generalizes beyond the single
+model, single-machine, concurrency=1 baseline used for Issues #13 and #14. The result must
+show prediction error and decision accuracy under at least two meaningfully different
+model, hardware, or load conditions, identify which parameters transfer across
+environments, and identify which parameters require online calibration.
 
-## Active work
+### Next P0 stage
 
-### PR #5: cache eviction/restore benchmark workload
+**Issue #16 remains open and follows Issue #15.**
 
-Observed GitHub state on 2026-08-10:
+Issue #16 promotes shadow-only restore/recompute advice into a real runtime choice with
+explicit enablement, observability, fallback, and safe behavior outside validated regions.
+Do not enable active behavior merely because the Issue #14 baseline gate passed.
 
-- PR: `#5`
-- Title: `Add cache eviction restore benchmark workload`
-- Branch: `feature/cache-eviction-restore-benchmark`
-- Head: `b91b6ee631a8145a5eabb55542ad733dfacff24a`
-- State: open and draft
-- Mergeable: true
-- Changed files: 13
-- Additions/deletions reported by GitHub: `+1522 / -17`
+### Parallel work
 
-The PR creates an opt-in pressure workload that populates victims, adds unique fillers to
-force cache pressure, then replays only victims to measure lower-tier restore behavior. It
-also contains crossover sweep and population-result validation work.
+- **Issue #17**: NUMA topology discovery and CPU KV placement foundations, open.
+- **Issue #21**: permanent fix for the fake `vllm` fixture nested-newline escaping defect,
+  open.
 
-A clean local PR #5 checkout reproduced 70 passing tests plus one unrelated baseline
-fixture failure. After correcting only that fixture in the temporary runner workspace, the
-full `benchmarks/cache/tests` suite passed **71/71** and `compileall` passed. The temporary
-fixture modification was restored afterward and the worktree was clean.
+Issue #17 can proceed in parallel with Issue #15. Issue #21 is maintenance and should not
+block the main restore/recompute research path unless it directly blocks a required test.
 
-Current continuation document:
-[`handoffs/2026-08-10-pr5-current-handoff.md`](handoffs/2026-08-10-pr5-current-handoff.md).
+### Later work
 
-## Known repository baseline: `benchmarks/cache`
+- **Issue #18**: GPU/CPU/NVMe multi-tier KV placement, open; depends on active
+  restore/recompute behavior and NUMA foundations.
+- **Issue #19**: adaptive online KV admission/eviction, open; follows multi-tier placement
+  and active restore/recompute decisions.
 
-The latest observed `main` already fails repository static hygiene in this directory.
-Before PR #5 cleanup, the observed baseline was:
+## Recently completed core evidence
 
-- Ruff check: 21 errors, 4 reported as auto-fixable.
-- Ruff format: 13 files would be reformatted.
-- SPDX: 16 Python files missing `# SPDX-License-Identifier: Apache-2.0`.
-- The standard pre-commit path has also exposed markdownlint failures in the cache
-  benchmark documentation.
+### Issue #13 / PR #25: crossover measurement
 
-The observed PR #5 tree had:
-
-- Ruff check: 24 errors, 5 reported as auto-fixable.
-- Ruff format: 15 files would be reformatted.
-- SPDX: 18 Python files missing the required header.
-
-The delta is therefore much smaller than the repository-wide cache baseline: three Ruff
-errors, two additional format targets, and two additional missing-SPDX files were observed
-on PR #5. Do not solve this by blindly formatting all of `benchmarks/cache` inside PR #5;
-that would mix a broad baseline cleanup into a feature PR.
+- PR #25 merge commit:
+  `3295d83ff76ec8792942e6ec7faf9adbb4afe39e`
+- Baseline environment: one model, one GPU Pod, concurrency=1.
+- CPU-primary restore showed a P50 crossover bracket at 192-216 requested prompt tokens.
+- Tiered-filesystem restore showed no P50 crossover in the measured 256-4096 requested
+  token range; recompute remained faster throughout that measured range.
+- Restore provenance and structured calibration input were recorded for the next stage.
+- The filesystem evidence is lower-tier/tiered-fs on the container's local
+  overlay-backed filesystem; it is not evidence of physical NVMe performance.
 
 See:
-[`incidents/cache-benchmark-ci-baseline.md`](incidents/cache-benchmark-ci-baseline.md).
+[`validation/2026-08-10-issue13-restore-recompute-crossover.md`](validation/2026-08-10-issue13-restore-recompute-crossover.md).
 
-## Known test baseline: fake `vllm` fixture
+### Issue #14 / PR #26: shadow cost-model calibration
 
-`benchmarks/cache/tests/test_run_suite.py::test_fake_executable_end_to_end` can fail because
-its outer triple-quoted Python string contains a nested bytes literal with `\n`. The outer
-string interprets that escape and writes an actual newline into the generated executable,
-creating an unterminated bytes literal.
-
-This is not evidence of a `run_suite.main()` regression. The generated script must be
-inspected or compiled before attributing the failure to PR #5 behavior.
+- PR #26 merge commit:
+  `ddbe6650778c78ef01dec9ecbb424fa1a4bcf553`
+- Primary acceptance metric: P95.
+- Before calibration: 13/14 correct decisions and principal P95 macro-MAPE 34.021%.
+- After calibration: 14/14 correct decisions and principal P95 macro-MAPE 0.090%.
+- Calibration uses runtime actual `external_tokens`, not requested prompt tokens.
+- The Phase 1 result remains shadow-only and does not modify the active restore/recompute
+  execution path.
+- Repository-wide GitHub pre-commit passed on the final PR head before merge.
 
 See:
-[`incidents/fake-vllm-newline-fixture.md`](incidents/fake-vllm-newline-fixture.md).
+[`validation/2026-08-10-issue14-shadow-cost-model-calibration.md`](validation/2026-08-10-issue14-shadow-cost-model-calibration.md).
 
-## Current objective
+### PR #27: preserve the superseded PR #22 history
 
-Finish PR #5 without contaminating its feature scope with unrelated repository-wide cache
-hygiene.
+PR #27 preserved only these point-in-time records from PR #22:
+
+- [`history/2026-08-10-pr5-finalization-and-roadmap-transition.md`](history/2026-08-10-pr5-finalization-and-roadmap-transition.md)
+- [`handoffs/2026-08-10-post-pr5-roadmap.md`](handoffs/2026-08-10-post-pr5-roadmap.md)
+
+Those files are historical snapshots. They intentionally retain their 2026-08-10 framing
+and must not be read as the current roadmap. PR #22 itself was closed without merge.
+
+## Current objective: design Issue #15 generalization validation
+
+The next design/implementation cycle should stay narrow enough to produce interpretable
+new evidence rather than immediately launching a broad 1-8 GPU sweep.
 
 Recommended sequence:
 
-1. Keep the PR #5 feature workspace based on the authoritative PR head.
-2. Handle cache benchmark baseline hygiene as a separate workstream/branch.
-3. Re-run PR #5 tests against the corrected baseline.
-4. Apply only PR #5-specific static fixes after the baseline is known.
-5. Update the GitHub PR branch through a GitHub-capable write path.
-6. Sync GitHub to Gitee, then fetch in the Pod for final validation.
-7. Mark PR #5 ready and merge only after final scoped and CI validation.
+1. Reuse the checked-in Issue #13 measurement schema and Issue #14 calibrated evaluator.
+2. Choose the smallest additional conditions that satisfy Issue #15's generalization goal,
+   with at least two meaningfully different model, hardware, or load conditions overall.
+3. Define acceptance metrics before running hardware experiments, including prediction
+   error and decision accuracy.
+4. Separate transferable profile parameters from environment-specific or online-calibrated
+   parameters.
+5. Record failure boundaries and missing model inputs instead of hiding them with
+   high-cardinality fitting.
+6. Save structured results and a concise validation report under
+   `docs/engineering/validation/`.
+7. Keep execution shadow-only until Issue #15 evidence justifies moving to Issue #16.
 
-## Do not repeat without a new hypothesis
+## Important interpretation rules
 
-- Do not re-run the full PR #7 hardware sweep merely to reconfirm already archived
-  behavior.
-- Do not assume a benchmark subprocess uses feature source just because a worktree contains
-  it; validate runtime module provenance. See `incidents/native-wheel-exact-overlay.md`.
-- Do not interpret the p256 adaptive shadow crossover as an execution-path change.
-- Do not add retry logic because of the single non-reproduced metrics collection failure.
-- Do not merge PR #5 into PR #7 history; PR #7 is already merged and the branches were
-  intentionally kept separate.
-- Do not create a local merge commit in a Pod workspace and treat it as the authoritative
-  GitHub update if the Pod cannot push to GitHub.
+- Requested prompt tokens and runtime actual external KV tokens are not interchangeable.
+  Cost-model calibration and evaluation should use the runtime quantity used by the model.
+- Do not call a local filesystem tier "NVMe" unless the storage provenance actually proves
+  physical NVMe behavior.
+- Do not treat a shadow decision change as proof that the active runtime path changed.
+- Do not repeat the Issue #13 baseline sweep merely to reproduce archived numbers; rerun
+  expensive hardware experiments only when Issue #15 introduces a new condition or a new
+  hypothesis.
+- A current all-files CI failure should be classified against current `main` before being
+  attributed to a feature branch. Issue #20's old cache static baseline is completed.
+- The fake `vllm` fixture defect is still open as Issue #21 and should be treated as a known
+  maintenance item until it is permanently resolved.
 
-## Synchronization constraint
+## Source-of-truth order
 
-The observed development workflow uses GitHub as authoritative remote state, a Gitee
-mirror for Pod fetches, and Pod workspaces for tests and hardware runs. GitHub mutations
-must happen through a GitHub-capable path; mirror sync happens afterward.
+When records disagree, prefer:
+
+1. current GitHub issue, PR, branch, and commit metadata;
+2. current repository source and checked-in structured artifacts;
+3. raw benchmark/hardware artifacts;
+4. validation documents;
+5. history and handoff snapshots.
+
+The point-in-time handoffs under `docs/engineering/handoffs/` are useful provenance, but
+this file is the mutable repository summary that should be updated as the roadmap advances.
