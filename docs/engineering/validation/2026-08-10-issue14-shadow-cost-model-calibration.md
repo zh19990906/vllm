@@ -40,7 +40,7 @@ The profile uses low-cardinality, tier-separated empirical P95 curves on the run
 ### Recompute
 
 | External tokens | P95 ms |
-|---:|---:|
+| ---: | ---: |
 | 104 | 19.660 |
 | 168 | 22.186 |
 | 192 | 25.082 |
@@ -53,7 +53,7 @@ The profile uses low-cardinality, tier-separated empirical P95 curves on the run
 ### CPU-primary restore
 
 | External tokens | P95 ms |
-|---:|---:|
+| ---: | ---: |
 | 104 | 21.220 |
 | 168 | 21.830 |
 | 192 | 22.212 |
@@ -66,7 +66,7 @@ The profile uses low-cardinality, tier-separated empirical P95 curves on the run
 ### Tiered-filesystem restore
 
 | External tokens | P95 ms |
-|---:|---:|
+| ---: | ---: |
 | 232 | 36.007 |
 | 512 | 59.159 |
 | 1024 | 101.799 |
@@ -87,7 +87,7 @@ Requested-token anchors 216 and 224 both map to 192 external tokens. Their P95 c
 ## Per-anchor decision evidence
 
 | Source | Requested | External | Actual recompute ms | Actual restore ms | Actual | Calibrated prediction | Boundary-sensitive |
-|---|---:|---:|---:|---:|---|---|---|
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | cpu_primary | 128 | 104 | 19.660 | 21.220 | recompute | recompute | false |
 | cpu_primary | 192 | 168 | 22.186 | 21.830 | restore | restore | true |
 | cpu_primary | 216 | 192 | 24.872 | 22.130 | restore | restore | false |
