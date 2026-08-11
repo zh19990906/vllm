@@ -3,7 +3,7 @@ model:
   id: /mnt/model/Qwen2.5-14B-Instruct
   served_name: qwen2.5-14b
   dtype: auto
-  max_model_len: 32768
+  max_model_len: 8192
   trust_remote_code: false
 parallelism:
   tensor_parallel_size: 1
