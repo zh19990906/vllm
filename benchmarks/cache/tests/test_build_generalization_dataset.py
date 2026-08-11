@@ -976,6 +976,164 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             self.assertIsInstance(provenance["restore_case_id"], str)
             self.assertTrue(provenance["restore_case_id"])
 
+    def test_cpu_correction_run_replaces_only_invalid_base_sample(self) -> None:
+        from benchmarks.cache.build_generalization_dataset import (
+            build_generalization_dataset,
+        )
+
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            recompute, _, filesystem = _build_three_runs(base)
+
+            invalid_cpu = _write_run(
+                base / "cpu-invalid",
+                cache_mode="cpu-offload",
+                p95_ttft_ms=31.0,
+            )
+            corrected_cpu = _write_run(
+                base / "cpu-corrected",
+                cache_mode="cpu-offload",
+                p95_ttft_ms=21.0,
+                external_tokens=1856,
+                load_bytes=106430464,
+                load_count=8,
+            )
+
+            result = build_generalization_dataset(
+                condition_id="c-model",
+                recompute_run=recompute,
+                cpu_run=invalid_cpu,
+                filesystem_run=filesystem,
+                percentile="p95",
+                cpu_correction_run=corrected_cpu,
+            )
+
+        cpu_sample = next(
+            row for row in result["samples"]
+            if row["source"] == "cpu_primary"
+        )
+        self.assertEqual(cpu_sample["latency_ms"]["restore"]["p95"], 21.0)
+        self.assertEqual(
+            cpu_sample["provenance"]["restore_run_directory"],
+            str(corrected_cpu),
+        )
+
+        cpu_exclusions = [
+            row for row in result["excluded_samples"]
+            if row["source"] == "cpu_primary"
+        ]
+        self.assertEqual(len(cpu_exclusions), 1)
+        self.assertEqual(
+            cpu_exclusions[0]["reason"],
+            "no_external_kv_tokens",
+        )
+
+        self.assertEqual(
+            result["condition"]["run_directories"]["cpu_primary"],
+            str(invalid_cpu),
+        )
+
+    def test_cpu_correction_uses_same_run_recompute_when_available(self) -> None:
+        from benchmarks.cache.build_generalization_dataset import (
+            build_generalization_dataset,
+        )
+
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            recompute, _, filesystem = _build_three_runs(base)
+
+            invalid_cpu = _write_run(
+                base / "cpu-invalid",
+                cache_mode="cpu-offload",
+                p95_ttft_ms=31.0,
+            )
+
+            corrected_run = _write_run(
+                base / "cpu-corrected",
+                cache_mode="cpu-offload",
+                p95_ttft_ms=21.0,
+                external_tokens=1856,
+                load_bytes=106430464,
+                load_count=8,
+            )
+
+            corrected_recompute_metadata = (
+                corrected_run / "recompute-case" / "metadata.json"
+            )
+            _metadata(
+                corrected_recompute_metadata,
+                cache_mode="no-cache",
+            )
+            corrected_recompute = _record(
+                cache_mode="no-cache",
+                metadata_path=corrected_recompute_metadata,
+                p95_ttft_ms=29.0,
+            )
+
+            results_path = corrected_run / "scenario-results.jsonl"
+            with results_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(corrected_recompute, sort_keys=True) + "\n"
+                )
+
+            result = build_generalization_dataset(
+                condition_id="c-model",
+                recompute_run=recompute,
+                cpu_run=invalid_cpu,
+                filesystem_run=filesystem,
+                percentile="p95",
+                cpu_correction_run=corrected_run,
+            )
+
+        cpu_sample = next(
+            row for row in result["samples"]
+            if row["source"] == "cpu_primary"
+        )
+
+        self.assertEqual(
+            cpu_sample["latency_ms"]["recompute"]["p95"],
+            29.0,
+        )
+        self.assertEqual(
+            cpu_sample["provenance"]["recompute_run_directory"],
+            str(corrected_run),
+        )
+        self.assertEqual(
+            cpu_sample["provenance"]["restore_run_directory"],
+            str(corrected_run),
+        )
+
+    def test_cpu_correction_run_cannot_override_valid_base_sample(self) -> None:
+        from benchmarks.cache.build_generalization_dataset import (
+            build_generalization_dataset,
+        )
+
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            recompute, valid_cpu, filesystem = _build_three_runs(base)
+
+            correction = _write_run(
+                base / "cpu-correction",
+                cache_mode="cpu-offload",
+                p95_ttft_ms=21.0,
+                external_tokens=1856,
+                load_bytes=106430464,
+                load_count=8,
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "cannot override valid base CPU sample",
+            ):
+                build_generalization_dataset(
+                    condition_id="c-model",
+                    recompute_run=recompute,
+                    cpu_run=valid_cpu,
+                    filesystem_run=filesystem,
+                    percentile="p95",
+                    cpu_correction_run=correction,
+                )
+
     def test_non_divisible_external_tokens_hard_fail(self) -> None:
         from benchmarks.cache.build_generalization_dataset import (
             build_generalization_dataset,

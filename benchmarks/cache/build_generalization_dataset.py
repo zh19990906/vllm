@@ -31,6 +31,7 @@ def _load_eviction_restore_records(
     run_dir: Path,
     *,
     expected_cache_mode: str,
+    required: bool = True,
 ) -> list[dict[str, Any]]:
     path = run_dir / "scenario-results.jsonl"
     records = [
@@ -47,6 +48,8 @@ def _load_eviction_restore_records(
     ]
 
     if not matches:
+        if not required:
+            return []
         raise ValueError(
             "expected at least one eviction-restore "
             f"{expected_cache_mode} record in {run_dir}"
@@ -430,20 +433,35 @@ def build_generalization_dataset(
     cpu_run: Path,
     filesystem_run: Path,
     percentile: str = "p95",
+    cpu_correction_run: Path | None = None,
 ) -> dict[str, Any]:
     recompute_run = Path(recompute_run)
     cpu_run = Path(cpu_run)
     filesystem_run = Path(filesystem_run)
+    cpu_correction_run = (
+        Path(cpu_correction_run)
+        if cpu_correction_run is not None
+        else None
+    )
 
     recompute_manifest = _load_json(recompute_run / "manifest.json")
     cpu_manifest = _load_json(cpu_run / "manifest.json")
     filesystem_manifest = _load_json(filesystem_run / "manifest.json")
+    cpu_correction_manifest = (
+        _load_json(cpu_correction_run / "manifest.json")
+        if cpu_correction_run is not None
+        else None
+    )
 
     request_counts = {
         "recompute": _manifest_requests_per_case(recompute_manifest),
         "cpu_primary": _manifest_requests_per_case(cpu_manifest),
         "secondary:filesystem": _manifest_requests_per_case(filesystem_manifest),
     }
+    if cpu_correction_manifest is not None:
+        request_counts["cpu_primary_correction"] = _manifest_requests_per_case(
+            cpu_correction_manifest
+        )
     if len(set(request_counts.values())) != 1:
         raise ValueError(
             f"requests_per_case mismatch across manifests: {request_counts}"
@@ -462,6 +480,23 @@ def build_generalization_dataset(
         filesystem_run,
         expected_cache_mode="tiered-fs",
     )
+    cpu_correction_records = (
+        _load_eviction_restore_records(
+            cpu_correction_run,
+            expected_cache_mode="cpu-offload",
+        )
+        if cpu_correction_run is not None
+        else []
+    )
+    cpu_correction_recompute_records = (
+        _load_eviction_restore_records(
+            cpu_correction_run,
+            expected_cache_mode="no-cache",
+            required=False,
+        )
+        if cpu_correction_run is not None
+        else []
+    )
 
     recompute_by_key = {
         _record_pair_key(record): record for record in recompute_records
@@ -470,8 +505,22 @@ def build_generalization_dataset(
     filesystem_by_key = {
         _record_pair_key(record): record for record in filesystem_records
     }
+    cpu_correction_by_key = {
+        _record_pair_key(record): record for record in cpu_correction_records
+    }
+    cpu_correction_recompute_by_key = {
+        _record_pair_key(record): record
+        for record in cpu_correction_recompute_records
+    }
 
     recompute_keys = set(recompute_by_key)
+    correction_extra_keys = set(cpu_correction_by_key) - recompute_keys
+    if correction_extra_keys:
+        raise ValueError(
+            "CPU correction contains pair keys outside recompute condition: "
+            f"{sorted(correction_extra_keys)}"
+        )
+
     if set(cpu_by_key) != recompute_keys or set(filesystem_by_key) != recompute_keys:
         raise ValueError(
             "case identity mismatch across eviction-restore "
@@ -505,6 +554,10 @@ def build_generalization_dataset(
         "cpu_primary": _selected_gpu_index(cpu_manifest),
         "secondary:filesystem": _selected_gpu_index(filesystem_manifest),
     }
+    if cpu_correction_manifest is not None:
+        selected_indexes["cpu_primary_correction"] = _selected_gpu_index(
+            cpu_correction_manifest
+        )
 
     selected_gpu_uuids = {
         "recompute": _selected_gpu_uuid(
@@ -520,6 +573,11 @@ def build_generalization_dataset(
             selected_index=selected_indexes["secondary:filesystem"],
         ),
     }
+    if cpu_correction_run is not None:
+        selected_gpu_uuids["cpu_primary_correction"] = _selected_gpu_uuid(
+            cpu_correction_run,
+            selected_index=selected_indexes["cpu_primary_correction"],
+        )
 
     if len(set(selected_indexes.values())) != 1:
         raise ValueError(
@@ -557,6 +615,43 @@ def build_generalization_dataset(
                 percentile=percentile,
                 requests_per_case=requests_per_case,
             )
+
+            if (
+                source == "cpu_primary"
+                and sample is not None
+                and cpu_correction_run is not None
+                and pair_key in cpu_correction_by_key
+            ):
+                raise ValueError(
+                    "CPU correction cannot override valid base CPU sample "
+                    f"for pair key {pair_key!r}"
+                )
+
+            if (
+                source == "cpu_primary"
+                and exclusion is not None
+                and cpu_correction_run is not None
+                and pair_key in cpu_correction_by_key
+            ):
+                corrected_recompute_run = recompute_run
+                corrected_recompute = recompute
+                if pair_key in cpu_correction_recompute_by_key:
+                    corrected_recompute_run = cpu_correction_run
+                    corrected_recompute = cpu_correction_recompute_by_key[pair_key]
+
+                corrected_sample, corrected_exclusion = _build_sample(
+                    source=source,
+                    recompute_run=corrected_recompute_run,
+                    restore_run=cpu_correction_run,
+                    recompute_record=corrected_recompute,
+                    restore_record=cpu_correction_by_key[pair_key],
+                    percentile=percentile,
+                    requests_per_case=requests_per_case,
+                )
+                if corrected_sample is not None:
+                    sample = corrected_sample
+                if corrected_exclusion is not None:
+                    excluded_samples.append(corrected_exclusion)
 
             if sample is not None:
                 samples.append(sample)
