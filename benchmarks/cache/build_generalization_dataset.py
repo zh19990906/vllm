@@ -143,6 +143,15 @@ def _cpu_to_gpu_bytes(record: dict[str, Any]) -> int:
     )
 
 
+def _kv_offload_allocation_failures(record: dict[str, Any]) -> int:
+    return int(
+        _metric_delta_sum(
+            record,
+            base_name="vllm:kv_offload_allocation_failure",
+        )
+    )
+
+
 def _cpu_to_gpu_transfers(record: dict[str, Any]) -> int:
     directional = _metric_delta_sum(
         record,
@@ -333,6 +342,13 @@ def _build_sample(
 
     if external_total % requests_per_case != 0:
         raise ValueError("external KV tokens not divisible by requests_per_case")
+
+    if _kv_offload_allocation_failures(restore_record) > 0:
+        return None, _excluded_sample(
+            source=source,
+            restore_record=restore_record,
+            reason="kv_offload_allocation_failure",
+        )
 
     transfers = _cpu_to_gpu_transfers(restore_record)
     transfer_bytes = _cpu_to_gpu_bytes(restore_record)

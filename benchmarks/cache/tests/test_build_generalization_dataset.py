@@ -893,6 +893,49 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             "missing_tiered_fs_async_lookup_evidence",
         )
 
+    def test_restore_allocation_failure_is_explicitly_excluded(self) -> None:
+        from benchmarks.cache.build_generalization_dataset import (
+            build_generalization_dataset,
+        )
+
+        with TemporaryDirectory() as tmp:
+            recompute, cpu, filesystem = _build_three_runs(Path(tmp))
+
+            _rewrite_only_record(
+                filesystem,
+                lambda record: record["normalized"]["prometheus"]["delta"].update(
+                    {
+                        'vllm:kv_offload_allocation_failure'
+                        '{engine="0",model_name="fixture"}': {
+                            "reason": None,
+                            "value": 4.0,
+                        },
+                    }
+                ),
+            )
+
+            result = build_generalization_dataset(
+                condition_id="c-model",
+                recompute_run=recompute,
+                cpu_run=cpu,
+                filesystem_run=filesystem,
+                percentile="p95",
+            )
+
+        self.assertEqual(
+            [row["source"] for row in result["samples"]],
+            ["cpu_primary"],
+        )
+        self.assertEqual(len(result["excluded_samples"]), 1)
+        self.assertEqual(
+            result["excluded_samples"][0]["source"],
+            "secondary:filesystem",
+        )
+        self.assertEqual(
+            result["excluded_samples"][0]["reason"],
+            "kv_offload_allocation_failure",
+        )
+
     def test_non_divisible_external_tokens_hard_fail(self) -> None:
         from benchmarks.cache.build_generalization_dataset import (
             build_generalization_dataset,
