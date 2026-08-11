@@ -10,9 +10,9 @@ The first implementation is deliberately conservative: retain the current `Offlo
 
 ## Context
 
-#12 introduced an opt-in shadow cost model that distinguishes CPU-primary from secondary-tier provenance, predicts restore versus recompute cost, and calibrates secondary-tier promotion online with a bounded EWMA. It intentionally does not change the actual restore path.
+Issue #12 introduced an opt-in shadow cost model that distinguishes CPU-primary from secondary-tier provenance, predicts restore versus recompute cost, and calibrates secondary-tier promotion online with a bounded EWMA. It intentionally does not change the actual restore path.
 
-#13 produced a systematic real-hardware baseline on Qwen2.5-7B-Instruct, one RTX PRO 5000 72GB Blackwell GPU, concurrency 1, and deterministic eviction/restore workloads. The findings relevant to #14 are:
+Issue #13 produced a systematic real-hardware baseline on Qwen2.5-7B-Instruct, one RTX PRO 5000 72GB Blackwell GPU, concurrency 1, and deterministic eviction/restore workloads. The findings relevant to #14 are:
 
 - valid CPU-primary P50 crossover lies between 192 and 216 requested prompt tokens;
 - CPU-primary restore is substantially faster than recompute from 256 through 4096 requested tokens;
@@ -229,7 +229,7 @@ Retain filesystem/tiered-fs terminology. Do not rename the tier to NVMe.
 
 ### Promotion curve / EWMA
 
-#14 does not initially change the existing secondary promotion EWMA equation or its low-cardinality `(tier, token_bucket)` state.
+Issue #14 does not initially change the existing secondary promotion EWMA equation or its low-cardinality `(tier, token_bucket)` state.
 
 The static #13 acceptance criteria are evaluated against the calibrated seed profile with runtime scale 1.0. EWMA convergence/stability is separately tested with deterministic unit tests and, if needed, a focused shadow-only runtime validation.
 
@@ -440,11 +440,11 @@ The report must include:
 
 If #14 passes on the fixed baseline, #15 owns validation across different model, concurrency/load, and hardware conditions and decides whether additional low-cardinality features such as transfer bytes or hardware/profile identity are required.
 
-#16 may only enable active restore/recompute selection after #14 and the necessary #15 generalization evidence are accepted. The active path must consume the same explicit provenance and calibrated cost semantics rather than reintroducing `cache hit => restore`.
+Issue #16 may only enable active restore/recompute selection after #14 and the necessary #15 generalization evidence are accepted. The active path must consume the same explicit provenance and calibrated cost semantics rather than reintroducing `cache hit => restore`.
 
 ## Completion Criteria
 
-#14 is complete when all of the following are true:
+Issue #14 is complete when all of the following are true:
 
 - [ ] P95 prediction-error and decision-accuracy metrics are implemented and documented.
 - [ ] #13 data are transformed into an external-token calibrated profile with invalid samples excluded by evidence.
