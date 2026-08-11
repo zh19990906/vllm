@@ -63,6 +63,54 @@ PROFILE = {
 }
 
 
+CALIBRATED_P95_PROFILE = {
+    "cache_cost_model": {
+        "mode": "shadow",
+        "ewma_alpha": 0.2,
+        "sample_scale_min": 0.25,
+        "sample_scale_max": 4.0,
+        "profile": {
+            "recompute_ms": {
+                104: 19.660,
+                168: 22.186,
+                192: 25.082,
+                232: 26.663,
+                512: 44.813,
+                1024: 81.258,
+                2016: 152.433,
+                4088: 309.140,
+            },
+            "tiers": {
+                "cpu_primary": {
+                    "restore_ms": {
+                        104: 21.220,
+                        168: 21.830,
+                        192: 22.212,
+                        232: 21.872,
+                        512: 23.057,
+                        1024: 24.687,
+                        2016: 29.173,
+                        4088: 35.213,
+                    }
+                },
+                "filesystem": {
+                    "restore_ms": {
+                        232: 36.007,
+                        512: 59.159,
+                        1024: 101.799,
+                        2016: 320.793,
+                        4088: 648.235,
+                    },
+                    "promotion_ms": PROFILE["cache_cost_model"]["profile"]["tiers"][
+                        "filesystem"
+                    ]["promotion_ms"],
+                },
+            },
+        },
+    }
+}
+
+
 def test_curve_exact_interpolation_and_outside_confidence() -> None:
     curve = CostCurve.from_mapping({256: 20.0, 512: 40.0, 1024: 80.0})
 
@@ -393,3 +441,96 @@ def test_mixed_source_missing_curve_returns_no_decision() -> None:
         )
         is None
     )
+
+
+def _calibrated_model() -> Any:
+    model = OffloadCostModel.from_extra_config(CALIBRATED_P95_PROFILE)
+    assert model is not None
+    return model
+
+
+@pytest.mark.parametrize(
+    ("tokens", "expected"),
+    [
+        (104, "recompute"),
+        (168, "restore"),
+        (192, "restore"),
+        (232, "restore"),
+        (512, "restore"),
+        (1024, "restore"),
+        (2016, "restore"),
+        (4088, "restore"),
+    ],
+)
+def test_calibrated_cpu_p95_decisions(
+    tokens: int,
+    expected: str,
+) -> None:
+    decision = _calibrated_model().shadow_decide(
+        LoadProvenance(
+            source="cpu_primary",
+            external_tokens=tokens,
+            secondary_promoted_tokens=0,
+            sources=("cpu_primary",),
+            confidence="high",
+        )
+    )
+    assert decision is not None
+    assert decision.preferred == expected
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [232, 512, 1024, 2016, 4088],
+)
+def test_calibrated_filesystem_p95_still_prefers_recompute(
+    tokens: int,
+) -> None:
+    decision = _calibrated_model().shadow_decide(
+        LoadProvenance(
+            source="secondary:filesystem",
+            external_tokens=tokens,
+            secondary_promoted_tokens=tokens,
+            sources=("secondary:filesystem",),
+            confidence="high",
+        )
+    )
+    assert decision is not None
+    assert decision.preferred == "recompute"
+
+
+def test_ewma_converges_monotonically_toward_stationary_scale() -> None:
+    model = _profile_model()
+    observed_ms = 81.458 * 2.0
+    scales = []
+
+    for _ in range(5):
+        observation = model.observe_secondary_promotion(
+            "filesystem",
+            1024,
+            observed_ms,
+        )
+        assert observation is not None
+        scales.append(observation.runtime_scale)
+
+    assert scales == sorted(scales)
+    assert all(scale < 2.0 for scale in scales)
+    assert scales == pytest.approx([1.2, 1.36, 1.488, 1.5904, 1.67232])
+
+
+def test_ewma_stable_observations_have_diminishing_updates() -> None:
+    model = _profile_model()
+    observed_ms = 81.458 * 2.0
+    scales = []
+
+    for _ in range(5):
+        observation = model.observe_secondary_promotion(
+            "filesystem",
+            1024,
+            observed_ms,
+        )
+        assert observation is not None
+        scales.append(observation.runtime_scale)
+
+    increments = [right - left for left, right in zip(scales, scales[1:])]
+    assert increments[0] > increments[1] > increments[2] > increments[3] > 0
