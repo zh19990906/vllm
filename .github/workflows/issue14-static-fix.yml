@@ -1,0 +1,115 @@
+name: issue14-static-fix
+
+on:
+  push:
+    branches:
+      - calibration/issue14-shadow-cost-model
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: calibration/issue14-shadow-cost-model
+          fetch-depth: 0
+
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: '3.12'
+
+      - name: Apply deterministic static fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          spdx = (
+              "# SPDX-License-Identifier: Apache-2.0\n"
+              "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project\n\n"
+          )
+          for name in (
+              "benchmarks/cache/cost_model_calibration.py",
+              "benchmarks/cache/evaluate_cost_model.py",
+              "benchmarks/cache/tests/test_cost_model_calibration.py",
+          ):
+              path = Path(name)
+              text = path.read_text()
+              if not text.startswith("# SPDX-License-Identifier: Apache-2.0\n"):
+                  path.write_text(spdx + text)
+
+          test_path = Path("tests/v1/kv_offload/test_cost_model.py")
+          text = test_path.read_text()
+          old = "\nPROFILE = {\n"
+          new = "\nPROFILE: dict[str, Any] = {\n"
+          if new not in text:
+              if old not in text:
+                  raise SystemExit("PROFILE declaration not found")
+              test_path.write_text(text.replace(old, new, 1))
+
+          pyproject = Path("pyproject.toml")
+          text = pyproject.read_text()
+          marker = "[tool.typos.default.extend-words]\n"
+          additions = []
+          if 'MAPE = "MAPE"' not in text:
+              additions.append('MAPE = "MAPE"\n')
+          if 'mape = "mape"' not in text:
+              additions.append('mape = "mape"\n')
+          if additions:
+              if marker not in text:
+                  raise SystemExit("typos extend-words section not found")
+              pyproject.write_text(text.replace(marker, marker + "".join(additions), 1))
+
+          design = Path(
+              "docs/superpowers/specs/2026-08-10-issue14-shadow-cost-model-calibration-design.md"
+          )
+          text = design.read_text()
+          for old, new in (
+              ("\n#12 introduced ", "\nIssue #12 introduced "),
+              ("\n#13 produced ", "\nIssue #13 produced "),
+              ("\n#14 does not initially change ", "\nIssue #14 does not initially change "),
+              ("\n#16 may only enable ", "\nIssue #16 may only enable "),
+              ("\n#14 is complete when ", "\nIssue #14 is complete when "),
+          ):
+              text = text.replace(old, new, 1)
+          design.write_text(text)
+          PY
+
+      - name: Apply repository markdown formatter
+        shell: bash
+        run: |
+          npm install --global markdownlint-cli2@0.21.0 >/tmp/npm-markdownlint.log 2>&1
+          markdownlint-cli2 --fix \
+            docs/engineering/validation/2026-08-10-issue13-restore-recompute-crossover.md \
+            docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.md \
+            docs/superpowers/plans/2026-08-10-issue14-shadow-cost-model-calibration.md \
+            docs/superpowers/specs/2026-08-10-issue14-shadow-cost-model-calibration-design.md
+          markdownlint-cli2 \
+            docs/engineering/validation/2026-08-10-issue13-restore-recompute-crossover.md \
+            docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.md \
+            docs/superpowers/plans/2026-08-10-issue14-shadow-cost-model-calibration.md \
+            docs/superpowers/specs/2026-08-10-issue14-shadow-cost-model-calibration-design.md
+
+      - name: Commit only the approved static fixes
+        shell: bash
+        run: |
+          rm .github/workflows/issue14-static-fix.yml
+          git add \
+            .github/workflows/issue14-static-fix.yml \
+            pyproject.toml \
+            benchmarks/cache/cost_model_calibration.py \
+            benchmarks/cache/evaluate_cost_model.py \
+            benchmarks/cache/tests/test_cost_model_calibration.py \
+            tests/v1/kv_offload/test_cost_model.py \
+            docs/engineering/validation/2026-08-10-issue13-restore-recompute-crossover.md \
+            docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.md \
+            docs/superpowers/plans/2026-08-10-issue14-shadow-cost-model-calibration.md \
+            docs/superpowers/specs/2026-08-10-issue14-shadow-cost-model-calibration-design.md
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: satisfy issue 14 pre-commit checks"
+          git push origin HEAD:calibration/issue14-shadow-cost-model
