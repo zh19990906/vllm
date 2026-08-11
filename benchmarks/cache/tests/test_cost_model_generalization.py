@@ -771,3 +771,115 @@ class CurveScalingDiagnosticsTests(unittest.TestCase):
             filesystem["classification"],
             "curve_shape_or_missing_feature",
         )
+
+
+class FrozenGeneralizationCliTests(unittest.TestCase):
+    def test_cli_is_deterministic_and_check_rejects_non_pass(
+        self,
+    ) -> None:
+        from copy import deepcopy
+        from tempfile import TemporaryDirectory
+
+        from benchmarks.cache.evaluate_cost_model_generalization import main
+
+        condition_payload = _generalization_condition_fixture()
+        frozen_path = (
+            _REPO_ROOT
+            / "benchmarks/cache/profiles/"
+            "issue14-shadow-cost-calibrated.json"
+        )
+        frozen_artifact = json.loads(
+            frozen_path.read_text(encoding="utf-8")
+        )
+
+        # Force a non-pass holdout while preserving the real frozen-profile
+        # artifact shape accepted by load_profile_artifact().
+        wrong_artifact = deepcopy(frozen_artifact)
+        wrong_artifact[
+            "cache_cost_model"
+        ]["profile"]["tiers"]["cpu_primary"]["restore_ms"]["232"] = 50.0
+
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            condition_path = tmp_path / "condition.json"
+            profile_path = tmp_path / "wrong-profile.json"
+            output_one = tmp_path / "result-one.json"
+            output_two = tmp_path / "result-two.json"
+            output_check = tmp_path / "result-check.json"
+
+            condition_path.write_text(
+                json.dumps(condition_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            profile_path.write_text(
+                json.dumps(wrong_artifact, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            common = [
+                "--input",
+                str(condition_path),
+                "--profile",
+                str(profile_path),
+                "--percentile",
+                "p95",
+                "--diagnose",
+            ]
+
+            rc_one = main(
+                common
+                + [
+                    "--output",
+                    str(output_one),
+                ]
+            )
+            rc_two = main(
+                common
+                + [
+                    "--output",
+                    str(output_two),
+                ]
+            )
+
+            self.assertEqual(rc_one, 0)
+            self.assertEqual(rc_two, 0)
+            self.assertEqual(
+                output_one.read_bytes(),
+                output_two.read_bytes(),
+            )
+
+            result = json.loads(
+                output_one.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                result["mode"],
+                "frozen_profile_holdout",
+            )
+            self.assertEqual(
+                result["profile_identity"],
+                str(profile_path),
+            )
+            self.assertIn("diagnostics", result)
+            self.assertNotEqual(
+                result["classification"],
+                "fixed_profile_transfer_pass",
+            )
+            self.assertNotIn("calibrated_profile", result)
+
+            check_rc = main(
+                common
+                + [
+                    "--output",
+                    str(output_check),
+                    "--check",
+                ]
+            )
+
+            self.assertEqual(check_rc, 1)
+            self.assertTrue(output_check.is_file())
+            self.assertEqual(
+                json.loads(
+                    output_check.read_text(encoding="utf-8")
+                )["classification"],
+                result["classification"],
+            )
