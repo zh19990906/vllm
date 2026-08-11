@@ -23,7 +23,7 @@ server:
     CUDA_VISIBLE_DEVICES: '0'
 cache:
   gpu_memory_utilization: 0.9
-  cpu_bytes_to_use: 8589934592
+  cpu_bytes_to_use: 17179869184
   offload_block_size: 64
   eviction_policy: lru
   filesystem:
