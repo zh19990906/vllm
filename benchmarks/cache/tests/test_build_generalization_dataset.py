@@ -1052,3 +1052,90 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             len(loaded.dataset.decision_samples),
             2,
         )
+
+
+class GeneralizationDatasetMultiAnchorTests(unittest.TestCase):
+    def test_builds_five_anchor_condition_from_multi_record_runs(
+        self,
+    ) -> None:
+        from benchmarks.cache.build_generalization_dataset import (
+            build_generalization_dataset,
+        )
+
+        anchors = [128, 192, 256, 1024, 4096]
+
+        def expand_run(run_dir: Path) -> None:
+            result_path = run_dir / "scenario-results.jsonl"
+            rows = [
+                json.loads(line)
+                for line in result_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(rows), 1)
+
+            template = rows[0]
+            expanded = []
+            for index, anchor in enumerate(anchors):
+                row = json.loads(json.dumps(template))
+                row["prompt_tokens"] = anchor
+
+                # Keep fixture provenance/hashes identical across
+                # recompute and restore runs at a given pair key.
+                # Vary latency only to prove every record is used.
+                row["normalized"]["benchmark"]["ttft_ms"]["p95"] = (
+                    float(template["normalized"]["benchmark"]["ttft_ms"]["p95"]) + index
+                )
+                expanded.append(row)
+
+            result_path.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in expanded),
+                encoding="utf-8",
+            )
+
+        with TemporaryDirectory() as tmp:
+            recompute, cpu, filesystem = _build_three_runs(Path(tmp))
+
+            for run_dir in (recompute, cpu, filesystem):
+                expand_run(run_dir)
+
+            result = build_generalization_dataset(
+                condition_id="c-model",
+                recompute_run=recompute,
+                cpu_run=cpu,
+                filesystem_run=filesystem,
+                percentile="p95",
+            )
+
+        self.assertEqual(len(result["samples"]), 10)
+        self.assertEqual(result["excluded_samples"], [])
+
+        actual = [
+            (
+                sample["requested_tokens"],
+                sample["source"],
+                sample["latency_ms"]["recompute"]["p95"],
+                sample["latency_ms"]["restore"]["p95"],
+            )
+            for sample in result["samples"]
+        ]
+
+        expected = []
+        for index, anchor in enumerate(anchors):
+            expected.extend(
+                [
+                    (
+                        anchor,
+                        "cpu_primary",
+                        30.0 + index,
+                        24.0 + index,
+                    ),
+                    (
+                        anchor,
+                        "secondary:filesystem",
+                        30.0 + index,
+                        38.0 + index,
+                    ),
+                ]
+            )
+
+        self.assertEqual(actual, expected)

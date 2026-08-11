@@ -17,30 +17,57 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _load_eviction_restore_record(
+def _record_pair_key(
+    record: dict[str, Any],
+) -> tuple[int, int, str]:
+    return (
+        int(record["prompt_tokens"]),
+        int(record["concurrency"]),
+        str(record["request_rate"]),
+    )
+
+
+def _load_eviction_restore_records(
     run_dir: Path,
     *,
     expected_cache_mode: str,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     path = run_dir / "scenario-results.jsonl"
-    matches: list[dict[str, Any]] = []
+    records = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        if (
-            row.get("workload_kind") == "eviction-restore"
-            and row.get("cache_mode") == expected_cache_mode
-        ):
-            matches.append(row)
+    matches = [
+        record
+        for record in records
+        if record.get("workload_kind") == "eviction-restore"
+        and record.get("cache_mode") == expected_cache_mode
+    ]
 
-    if len(matches) != 1:
+    if not matches:
         raise ValueError(
-            f"expected exactly one eviction-restore "
-            f"{expected_cache_mode} record in {run_dir}, found {len(matches)}"
+            "expected at least one eviction-restore "
+            f"{expected_cache_mode} record in {run_dir}"
         )
-    return matches[0]
+
+    by_key: dict[
+        tuple[int, int, str],
+        dict[str, Any],
+    ] = {}
+
+    for record in matches:
+        key = _record_pair_key(record)
+        if key in by_key:
+            raise ValueError(
+                "duplicate eviction-restore pair key "
+                f"{key!r} for {expected_cache_mode} "
+                f"in {run_dir}"
+            )
+        by_key[key] = record
+
+    return [by_key[key] for key in sorted(by_key)]
 
 
 def _resolve_metadata_path(run_dir: Path, record: dict[str, Any]) -> Path:
@@ -381,24 +408,55 @@ def build_generalization_dataset(
         )
     requests_per_case = next(iter(request_counts.values()))
 
-    recompute = _load_eviction_restore_record(
+    recompute_records = _load_eviction_restore_records(
         recompute_run,
         expected_cache_mode="no-cache",
     )
-    cpu = _load_eviction_restore_record(
+    cpu_records = _load_eviction_restore_records(
         cpu_run,
         expected_cache_mode="cpu-offload",
     )
-    filesystem = _load_eviction_restore_record(
+    filesystem_records = _load_eviction_restore_records(
         filesystem_run,
         expected_cache_mode="tiered-fs",
     )
 
-    if recompute.get("status") != "completed":
-        raise ValueError("recompute record must be completed")
+    recompute_by_key = {
+        _record_pair_key(record): record for record in recompute_records
+    }
+    cpu_by_key = {_record_pair_key(record): record for record in cpu_records}
+    filesystem_by_key = {
+        _record_pair_key(record): record for record in filesystem_records
+    }
 
-    _assert_same_case(recompute, cpu)
-    _assert_same_case(recompute, filesystem)
+    recompute_keys = set(recompute_by_key)
+    if set(cpu_by_key) != recompute_keys or set(filesystem_by_key) != recompute_keys:
+        raise ValueError(
+            "case identity mismatch across eviction-restore "
+            "pair keys (prompt_tokens, concurrency, request_rate): "
+            f"recompute={sorted(recompute_by_key)}, "
+            f"cpu_primary={sorted(cpu_by_key)}, "
+            f"secondary:filesystem={sorted(filesystem_by_key)}"
+        )
+
+    first_recompute = recompute_records[0]
+    for record in recompute_records:
+        if record.get("status") != "completed":
+            raise ValueError("recompute record must be completed")
+
+        for field in (
+            "model_id",
+            "concurrency",
+            "request_rate",
+            "tensor_parallel_size",
+        ):
+            if record.get(field) != first_recompute.get(field):
+                raise ValueError(
+                    "case identity mismatch across recompute "
+                    f"records for {field}: "
+                    f"{first_recompute.get(field)!r} != "
+                    f"{record.get(field)!r}"
+                )
 
     selected_indexes = {
         "recompute": _selected_gpu_index(recompute_manifest),
@@ -437,28 +495,31 @@ def build_generalization_dataset(
     samples: list[dict[str, Any]] = []
     excluded_samples: list[dict[str, Any]] = []
 
-    for source, restore_run, restore_record in (
-        ("cpu_primary", cpu_run, cpu),
-        (
-            "secondary:filesystem",
-            filesystem_run,
-            filesystem,
-        ),
-    ):
-        sample, exclusion = _build_sample(
-            source=source,
-            recompute_run=recompute_run,
-            restore_run=restore_run,
-            recompute_record=recompute,
-            restore_record=restore_record,
-            percentile=percentile,
-            requests_per_case=requests_per_case,
-        )
+    for pair_key in sorted(recompute_by_key):
+        recompute = recompute_by_key[pair_key]
 
-        if sample is not None:
-            samples.append(sample)
-        if exclusion is not None:
-            excluded_samples.append(exclusion)
+        for source, restore_run, restore_by_key in (
+            ("cpu_primary", cpu_run, cpu_by_key),
+            (
+                "secondary:filesystem",
+                filesystem_run,
+                filesystem_by_key,
+            ),
+        ):
+            sample, exclusion = _build_sample(
+                source=source,
+                recompute_run=recompute_run,
+                restore_run=restore_run,
+                recompute_record=recompute,
+                restore_record=restore_by_key[pair_key],
+                percentile=percentile,
+                requests_per_case=requests_per_case,
+            )
+
+            if sample is not None:
+                samples.append(sample)
+            if exclusion is not None:
+                excluded_samples.append(exclusion)
 
     return {
         "schema_version": 1,
@@ -467,8 +528,8 @@ def build_generalization_dataset(
             "id": condition_id,
             "model": str(config["model"]["id"]),
             "served_model": str(config["model"]["served_name"]),
-            "concurrency": int(recompute["concurrency"]),
-            "request_rate": recompute["request_rate"],
+            "concurrency": int(first_recompute["concurrency"]),
+            "request_rate": first_recompute["request_rate"],
             "requests_per_case": requests_per_case,
             "tensor_parallel_size": int(config["parallelism"]["tensor_parallel_size"]),
             "gpu_index": gpu_index,
