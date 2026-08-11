@@ -104,13 +104,15 @@ can then be synchronized to Gitee and fetched by the Pod.
 This distinction matters because a valid local commit is not useful as authoritative
 history if it cannot be delivered to the GitHub branch that owns the PR.
 
-## Initial index
+## Current index
 
 ### History
 
 - [`2026-08-07-pr3-cache-workload-fairness-convergence.md`](history/2026-08-07-pr3-cache-workload-fairness-convergence.md)
 - [`2026-08-07-to-2026-08-10-pr5-cache-eviction-restore-benchmark.md`](history/2026-08-07-to-2026-08-10-pr5-cache-eviction-restore-benchmark.md)
 - [`2026-08-07-to-2026-08-10-pr7-shadow-cost-model.md`](history/2026-08-07-to-2026-08-10-pr7-shadow-cost-model.md)
+- [`2026-08-10-pr5-finalization-and-roadmap-transition.md`](history/2026-08-10-pr5-finalization-and-roadmap-transition.md)
+- [`2026-08-10-to-2026-08-11-issue13-14-and-roadmap-consolidation.md`](history/2026-08-10-to-2026-08-11-issue13-14-and-roadmap-consolidation.md)
 
 ### Incidents
 
@@ -124,7 +126,14 @@ history if it cannot be delivered to the GitHub branch that owns the PR.
 
 - [`cache-crossover-baseline.md`](validation/cache-crossover-baseline.md)
 - [`pr7-shadow-cost-model-hardware-validation.md`](validation/pr7-shadow-cost-model-hardware-validation.md)
+- [`2026-08-10-issue13-restore-recompute-crossover.md`](validation/2026-08-10-issue13-restore-recompute-crossover.md)
+- [`2026-08-10-issue14-shadow-cost-model-calibration.md`](validation/2026-08-10-issue14-shadow-cost-model-calibration.md)
 
 ### Current handoff
 
+- [`2026-08-11-issue15-generalization-handoff.md`](handoffs/2026-08-11-issue15-generalization-handoff.md)
+
+### Historical handoffs
+
 - [`2026-08-10-pr5-current-handoff.md`](handoffs/2026-08-10-pr5-current-handoff.md)
+- [`2026-08-10-post-pr5-roadmap.md`](handoffs/2026-08-10-post-pr5-roadmap.md)

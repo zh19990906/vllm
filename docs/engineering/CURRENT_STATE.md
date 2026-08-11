@@ -10,11 +10,15 @@ before acting if this file is older than the current session.
 - Repository: `zh19990906/vllm`
 - Default branch: `main`
 - This refresh was prepared from
-  `main@eae9e8b5803d2770a719a43b0020da0c275095e0`, immediately after PR #27 merged.
+  `main@ceb895f9abd916524ca7178aac3f42dc230a48af`, after the PR #27-#29 documentation
+  consolidation completed.
 - Do not treat that snapshot SHA as a permanently current branch head. Updating this file
   creates newer commits; live GitHub metadata remains authoritative for the actual head.
 - PR #27 preserved the useful point-in-time history from superseded PR #22 without merging
   its stale mutable roadmap state.
+- PR #28 refreshed this file to the Issue #15-era roadmap, and PR #29 corrected the
+  snapshot wording so this mutable document does not recursively claim its own merge as a
+  permanently current head.
 - GitHub is the authoritative remote. The observed development workflow synchronizes
   GitHub branches/tags to a Gitee mirror used by Pod workspaces.
 - Pod workspaces are for build/test/hardware validation and are not an authoritative
@@ -119,15 +123,23 @@ See:
 See:
 [`validation/2026-08-10-issue14-shadow-cost-model-calibration.md`](validation/2026-08-10-issue14-shadow-cost-model-calibration.md).
 
-### PR #27: preserve the superseded PR #22 history
+### PR #27-#29: retire stale roadmap state and restore durable documentation
 
-PR #27 preserved only these point-in-time records from PR #22:
+PR #27 preserved only these point-in-time records from superseded PR #22:
 
 - [`history/2026-08-10-pr5-finalization-and-roadmap-transition.md`](history/2026-08-10-pr5-finalization-and-roadmap-transition.md)
 - [`handoffs/2026-08-10-post-pr5-roadmap.md`](handoffs/2026-08-10-post-pr5-roadmap.md)
 
 Those files are historical snapshots. They intentionally retain their 2026-08-10 framing
 and must not be read as the current roadmap. PR #22 itself was closed without merge.
+
+PR #28 refreshed this mutable status file to the Issue #15-era roadmap. PR #29 corrected
+the refresh metadata so it records a preparation snapshot rather than a self-invalidating
+claim about the permanently current `main` head.
+
+The consolidated progress record is:
+
+[`history/2026-08-10-to-2026-08-11-issue13-14-and-roadmap-consolidation.md`](history/2026-08-10-to-2026-08-11-issue13-14-and-roadmap-consolidation.md).
 
 ## Current objective: design Issue #15 generalization validation
 
@@ -148,6 +160,16 @@ Recommended sequence:
 6. Save structured results and a concise validation report under
    `docs/engineering/validation/`.
 7. Keep execution shadow-only until Issue #15 evidence justifies moving to Issue #16.
+
+## Current continuation record
+
+Use this handoff for the next Issue #15 session:
+
+[`handoffs/2026-08-11-issue15-generalization-handoff.md`](handoffs/2026-08-11-issue15-generalization-handoff.md).
+
+It records the completed #13/#14 inputs, the minimum discriminative experiment shape,
+metrics that must be fixed before expensive runs, and stop conditions that prevent an
+unnecessary broad sweep.
 
 ## Important interpretation rules
 
