@@ -25,7 +25,7 @@ LoadProvenance = _COST_MODEL.LoadProvenance
 OffloadCostModel = _COST_MODEL.OffloadCostModel
 
 
-PROFILE = {
+PROFILE: dict[str, Any] = {
     "cache_cost_model": {
         "mode": "shadow",
         "ewma_alpha": 0.2,
