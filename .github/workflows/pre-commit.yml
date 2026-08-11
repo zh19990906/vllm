@@ -11,42 +11,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 jobs:
-  autofix-issue14-plan:
-    if: github.event_name == 'pull_request' && github.head_ref == 'calibration/issue14-shadow-cost-model'
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      with:
-        ref: ${{ github.event.pull_request.head.ref }}
-        fetch-depth: 0
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '24'
-    - name: Format the issue 14 plan and restore this workflow
-      shell: bash
-      run: |
-        npx --yes markdownlint-cli2@0.21.0 --fix \
-          docs/superpowers/plans/2026-08-10-issue14-shadow-cost-model-calibration.md || true
-        npx --yes markdownlint-cli2@0.21.0 \
-          docs/superpowers/plans/2026-08-10-issue14-shadow-cost-model-calibration.md
-        git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1
-        git show FETCH_HEAD:.github/workflows/pre-commit.yml > .github/workflows/pre-commit.yml
-        git add \
-          .github/workflows/pre-commit.yml \
-          docs/superpowers/plans/2026-08-10-issue14-shadow-cost-model-calibration.md
-        git diff --cached --check
-        if git diff --cached --quiet; then
-          exit 0
-        fi
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git commit -m "docs: format issue 14 calibration plan"
-        git push origin HEAD:${{ github.event.pull_request.head.ref }}
-
   pre-run-check:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

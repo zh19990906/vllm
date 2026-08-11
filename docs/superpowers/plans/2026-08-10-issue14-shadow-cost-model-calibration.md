@@ -32,30 +32,32 @@
 ## File Structure
 
 - Create `benchmarks/cache/profiles/issue12-shadow-cost-baseline.json`
-  - Explicit, machine-specific preservation of the #12 test/design profile used for before-calibration scoring.
-  - Contains provenance metadata plus the exact `cache_cost_model` mapping; no runtime defaults are introduced.
+    - Explicit, machine-specific preservation of the #12 test/design profile used for before-calibration scoring.
+    - Contains provenance metadata plus the exact `cache_cost_model` mapping; no runtime defaults are introduced.
 - Create `benchmarks/cache/cost_model_calibration.py`
-  - Pure artifact parsing, eligibility/exclusion rules, runtime-axis sample construction, median profile derivation, real `OffloadCostModel` evaluation, aggregate metrics, repeat-direction checks, and deterministic result construction.
+    - Pure artifact parsing, eligibility/exclusion rules, runtime-axis sample construction, median profile derivation, real `OffloadCostModel` evaluation, aggregate metrics, repeat-direction checks, and deterministic result construction.
 - Create `benchmarks/cache/evaluate_cost_model.py`
-  - Thin CLI around the pure calibration module; JSON output and `--check` exit status.
+    - Thin CLI around the pure calibration module; JSON output and `--check` exit status.
 - Create `benchmarks/cache/tests/test_cost_model_calibration.py`
-  - Synthetic-artifact TDD coverage for parsing, pairing, duplicate aggregation, exclusions, metrics, decisions, baseline-vs-calibrated behavior, and deterministic output.
+    - Synthetic-artifact TDD coverage for parsing, pairing, duplicate aggregation, exclusions, metrics, decisions, baseline-vs-calibrated behavior, and deterministic output.
 - Modify `tests/v1/kv_offload/test_cost_model.py`
-  - Add calibrated-profile decision regression coverage and deterministic EWMA convergence/stability tests only; Phase 1 does not change production cost-model code.
+    - Add calibrated-profile decision regression coverage and deterministic EWMA convergence/stability tests only; Phase 1 does not change production cost-model code.
 - Create `docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json`
-  - Machine-readable real #13 before/after calibration result.
+    - Machine-readable real #13 before/after calibration result.
 - Create `docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.md`
-  - Human-readable metrics, per-anchor decisions, error-source explanation, exclusions, commands, EWMA verification, limitations, and shadow-only statement.
+    - Human-readable metrics, per-anchor decisions, error-source explanation, exclusions, commands, EWMA verification, limitations, and shadow-only statement.
 
 ---
 
 ### Task 1: Preserve the #12 Before-Calibration Profile Explicitly
 
 **Files:**
+
 - Create: `benchmarks/cache/profiles/issue12-shadow-cost-baseline.json`
 - Test: `benchmarks/cache/tests/test_cost_model_calibration.py`
 
 **Interfaces:**
+
 - Consumes: #12 profile values already recorded in `tests/v1/kv_offload/test_cost_model.py` and `docs/superpowers/specs/2026-08-07-kv-offload-shadow-cost-model-design.md`.
 - Produces: `load_profile_artifact(path: Path) -> dict[str, Any]` contract consumed by Tasks 2-5; the JSON's `cache_cost_model` value is directly acceptable to `OffloadCostModel.from_extra_config()` when wrapped as `{"cache_cost_model": ...}` only if needed by the helper.
 
@@ -194,10 +196,12 @@ This RED commit is intentional; Task 2 supplies the implementation immediately a
 ### Task 2: Build the Pure #13 Calibration Dataset and Derive the P95 Profile
 
 **Files:**
+
 - Create: `benchmarks/cache/cost_model_calibration.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_calibration.py`
 
 **Interfaces:**
+
 - Consumes: `load_profile_artifact(path: Path) -> dict[str, Any]` and the #13 artifact schema (`scope.requests_per_case`, `wide_curve`, `cpu_crossover_points`, `boundary_repeats`, invalid/failure sections).
 - Produces:
 
@@ -475,7 +479,7 @@ def _latency(row: Mapping[str, Any], field: str, percentile: Percentile) -> floa
 }
 ```
 
-7. add one exclusion record for the invalid CPU sweep and one for the 208 workload failure with reasons exactly `invalid_cpu_restore_provenance` and `workload_generation_failure`.
+1. add one exclusion record for the invalid CPU sweep and one for the 208 workload failure with reasons exactly `invalid_cpu_restore_provenance` and `workload_generation_failure`.
 
 - [ ] **Step 6: Implement median profile derivation**
 
@@ -558,11 +562,13 @@ git commit -m "feat: derive cache cost calibration profile"
 ### Task 3: Evaluate Before/After Profiles Through the Real Cost Model and Add the CLI
 
 **Files:**
+
 - Modify: `benchmarks/cache/cost_model_calibration.py`
 - Create: `benchmarks/cache/evaluate_cost_model.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_calibration.py`
 
 **Interfaces:**
+
 - Consumes: `CalibrationDataset`, `load_profile_artifact()`, `derive_calibrated_profile()` from Task 2 and the existing `OffloadCostModel.from_extra_config()` / `LoadProvenance` behavior.
 - Produces:
 
@@ -1022,9 +1028,11 @@ git commit -m "feat: evaluate cache cost calibration"
 ### Task 4: Add Calibrated Decision Regressions and EWMA Convergence Tests
 
 **Files:**
+
 - Modify: `tests/v1/kv_offload/test_cost_model.py`
 
 **Interfaces:**
+
 - Consumes: unchanged `CostCurve`, `OffloadCostModel`, `LoadProvenance`, and existing #12 EWMA behavior.
 - Produces: regression evidence that Phase 1 needs no runtime formula change and that EWMA converges/isolation/clamp semantics remain correct.
 
@@ -1204,15 +1212,17 @@ git commit -m "test: validate calibrated shadow cost decisions"
 ### Task 5: Run the Real #13 Phase 1 Gate and Record #14 Validation Evidence
 
 **Files:**
+
 - Create: `docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json`
 - Create: `docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.md`
 - Modify only if evidence requires: none in Phase 1; production runtime files remain untouched.
 
 **Interfaces:**
+
 - Consumes:
-  - `docs/engineering/validation/2026-08-10-issue13-restore-recompute-crossover.json`
-  - `benchmarks/cache/profiles/issue12-shadow-cost-baseline.json`
-  - `benchmarks/cache/evaluate_cost_model.py`
+    - `docs/engineering/validation/2026-08-10-issue13-restore-recompute-crossover.json`
+    - `benchmarks/cache/profiles/issue12-shadow-cost-baseline.json`
+    - `benchmarks/cache/evaluate_cost_model.py`
 - Produces: final machine-readable and human-readable #14 baseline calibration evidence.
 
 - [ ] **Step 1: Execute the real P95 evaluator in check mode**
