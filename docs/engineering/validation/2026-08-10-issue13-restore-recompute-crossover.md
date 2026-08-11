@@ -42,9 +42,9 @@ CUDA_VISIBLE_DEVICES=0
 GPU topology:
 
 ```text
-GPU0	GPU1	CPU Affinity	NUMA Affinity	GPU NUMA ID
-GPU0	 X 	NODE	0-63,128-191	0		N/A
-GPU1	NODE	 X 	0-63,128-191	0		N/A
+GPU0 GPU1 CPU Affinity NUMA Affinity GPU NUMA ID
+GPU0  X  NODE 0-63,128-191 0  N/A
+GPU1 NODE  X  0-63,128-191 0  N/A
 
 Legend:
 
@@ -145,7 +145,7 @@ Each run is grounded in its `scenario-results.jsonl` plus per-case `raw/<case-id
 `delta = restore TTFT - recompute TTFT`; negative means restore is faster.
 
 | requested | recompute P50 | CPU P50 | CPU ΔP50 | tiered-fs P50 | fs ΔP50 | CPU P95 | fs P95 | CPU ext tokens | fs ext tokens | CPU MiB | fs MiB |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 256 | 24.784 | 20.150 | -4.634 | 30.305 | +5.521 | 21.872 | 36.007 | 1856 | 1856 | 101.5 | 101.5 |
 | 512 | 44.338 | 19.742 | -24.596 | 50.514 | +6.176 | 23.057 | 59.159 | 4096 | 4096 | 224.0 | 224.0 |
 | 1024 | 77.679 | 20.913 | -56.766 | 98.799 | +21.120 | 24.687 | 101.799 | 8192 | 8192 | 448.0 | 448.0 |
@@ -163,7 +163,7 @@ Each run is grounded in its `scenario-results.jsonl` plus per-case `raw/<case-id
 ## CPU crossover refinement
 
 | requested | recompute P50 | CPU P50 | ΔP50 | recompute P95 | CPU P95 | ΔP95 | external tokens | xfers |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 128 | 17.663 | 19.546 | +1.883 | 19.660 | 21.220 | +1.560 | 832 | 8 |
 | 192 | 18.691 | 19.162 | +0.471 | 22.186 | 21.830 | -0.356 | 1344 | 8 |
 | 216 | 23.010 | 19.953 | -3.057 | 24.872 | 22.130 | -2.742 | 1536 | 8 |
@@ -172,7 +172,7 @@ Each run is grounded in its `scenario-results.jsonl` plus per-case `raw/<case-id
 ### 192 / 216 repeat validation
 
 | run | role | requested | ΔP50 | ΔP95 | ΔP99 |
-|---|---|---:|---:|---:|---:|
+| --- | --- | ---: | ---: | ---: | ---: |
 | `20260810T090835Z-45ca6bec` | anchor | 192 | +0.471 | -0.356 | +0.062 |
 | `20260810T092229Z-43e7c684` | anchor | 216 | -3.057 | -2.742 | -2.483 |
 | `20260810T092546Z-d5811de8` | repeat | 192 | +0.512 | -0.342 | +0.187 |
@@ -211,7 +211,7 @@ This proves lower-tier/external restore and rules out a warm GPU-only hit. It do
 The model must not treat requested prompt length as identical to actual external KV hit tokens. Examples from the valid CPU curve:
 
 | requested | external tokens total | external tokens/request |
-|---:|---:|---:|
+| ---: | ---: | ---: |
 | 256 | 1856 | 232.0 |
 | 512 | 4096 | 512.0 |
 | 1024 | 8192 | 1024.0 |
@@ -228,7 +228,7 @@ The reported crossover interval is therefore explicitly on the **requested-promp
 The first 2 GiB `cpu-offload` sweep must not be used as an actual CPU restore curve.
 
 | requested | recompute P50 | configured cpu-offload P50 | ΔP50 | external tokens | CPU→GPU xfers | local compute |
-|---:|---:|---:|---:|---:|---:|---:|
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 256 | 24.784 | 25.426 | +0.642 | 0 | 0 | 2049 |
 | 512 | 44.338 | 44.517 | +0.179 | 0 | 0 | 4105 |
 | 1024 | 77.679 | 78.221 | +0.542 | 0 | 0 | 8198 |

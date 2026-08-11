@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "name": "issue12-shadow-cost-baseline",
+  "provenance": {
+    "issue": 12,
+    "profile_role": "before_calibration",
+    "source_test": "tests/v1/kv_offload/test_cost_model.py",
+    "source_design": "docs/superpowers/specs/2026-08-07-kv-offload-shadow-cost-model-design.md",
+    "note": "Benchmark profile evidence only; not a production default."
+  },
+  "cache_cost_model": {
+    "mode": "shadow",
+    "ewma_alpha": 0.2,
+    "sample_scale_min": 0.25,
+    "sample_scale_max": 4.0,
+    "profile": {
+      "recompute_ms": {
+        "256": 26.414,
+        "512": 44.961,
+        "1024": 81.705,
+        "2048": 152.461,
+        "4096": 308.424
+      },
+      "tiers": {
+        "cpu_primary": {
+          "restore_ms": {
+            "1024": 24.49
+          }
+        },
+        "filesystem": {
+          "restore_ms": {
+            "256": 31.119,
+            "512": 56.979,
+            "1024": 108.132,
+            "2048": 244.266,
+            "4096": 651.127
+          },
+          "promotion_ms": {
+            "256": 13.916,
+            "512": 35.23,
+            "1024": 81.458,
+            "2048": 171.505,
+            "4096": 498.874
+          }
+        }
+      }
+    }
+  }
+}
