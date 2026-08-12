@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -72,6 +73,7 @@ class CapacitySnapshot:
     orphan_temp_count: int
     oversized_skip_count: int
     capacity_skip_count: int
+    eviction_failure_count: int
 
 
 class FileSystemCapacityManager:
@@ -118,6 +120,7 @@ class FileSystemCapacityManager:
 
         self._oversized_skip_count = 0
         self._capacity_skip_count = 0
+        self._eviction_failure_count = 0
 
         self._recover_existing_finals()
 
@@ -144,7 +147,113 @@ class FileSystemCapacityManager:
                 orphan_temp_count=len(self._orphan_temps),
                 oversized_skip_count=self._oversized_skip_count,
                 capacity_skip_count=self._capacity_skip_count,
+                eviction_failure_count=self._eviction_failure_count,
             )
+
+    def contains(self, path: str) -> bool:
+        normalized = self._normalize_path(path)
+        with self._metadata_lock:
+            entry = self._entries.get(normalized)
+            return (
+                entry is not None
+                and entry.state is EntryState.COMMITTED
+            )
+
+    def contains_many(self, paths: list[str]) -> list[bool]:
+        normalized = [self._normalize_path(path) for path in paths]
+        with self._metadata_lock:
+            return [
+                (
+                    (entry := self._entries.get(path)) is not None
+                    and entry.state is EntryState.COMMITTED
+                )
+                for path in normalized
+            ]
+
+    def touch(self, paths: Iterable[str]) -> None:
+        normalized = [self._normalize_path(path) for path in paths]
+        with self._metadata_lock:
+            for path in normalized:
+                entry = self._entries.get(path)
+                if (
+                    entry is None
+                    or entry.state is not EntryState.COMMITTED
+                ):
+                    continue
+                self._clock += 1
+                entry.recency = self._clock
+
+    def pin_for_read(self, path: str) -> ReadPin | None:
+        normalized = self._normalize_path(path)
+        with self._metadata_lock:
+            entry = self._entries.get(normalized)
+            if (
+                entry is None
+                or entry.state is not EntryState.COMMITTED
+            ):
+                return None
+            entry.readers += 1
+            return ReadPin(
+                path=entry.path,
+                generation=entry.generation,
+            )
+
+    def release_read(
+        self,
+        pin: ReadPin,
+        *,
+        invalidate: bool = False,
+    ) -> None:
+        # Use the global lock order even when the common path only updates
+        # metadata, because INVALID cleanup may require unlink.
+        with self._admission_lock:
+            with self._metadata_lock:
+                entry = self._entries.get(pin.path)
+                if (
+                    entry is None
+                    or entry.generation != pin.generation
+                ):
+                    raise ValueError("read pin is stale")
+                if entry.readers <= 0:
+                    raise ValueError("read pin is already released")
+
+                if invalidate:
+                    entry.state = EntryState.INVALID
+
+                entry.readers -= 1
+                should_cleanup = (
+                    entry.state is EntryState.INVALID
+                    and entry.readers == 0
+                )
+
+            if not should_cleanup:
+                return
+
+            try:
+                os.unlink(pin.path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.warning(
+                    "failed to remove invalid filesystem KV cache entry %s",
+                    pin.path,
+                    exc_info=True,
+                )
+                return
+
+            with self._metadata_lock:
+                entry = self._entries.get(pin.path)
+                if (
+                    entry is None
+                    or entry.generation != pin.generation
+                    or entry.state is not EntryState.INVALID
+                    or entry.readers != 0
+                ):
+                    return
+
+                del self._entries[pin.path]
+                self._accounted_bytes -= entry.size
+                self._assert_invariants_locked()
 
     def admit_write(
         self,
@@ -185,32 +294,41 @@ class FileSystemCapacityManager:
                         status=AdmissionStatus.DUPLICATE_INFLIGHT
                     )
 
-                if size > self.max_bytes:
-                    self._oversized_skip_count += 1
-                    return AdmissionResult(
-                        status=AdmissionStatus.OVERSIZED
-                    )
-
                 if (
-                    self._accounted_bytes
-                    + self._reserved_bytes
-                    + size
-                    > self.max_bytes
+                    existing is not None
+                    and existing.state is not EntryState.COMMITTED
                 ):
                     self._capacity_skip_count += 1
                     return AdmissionResult(
                         status=AdmissionStatus.CAPACITY
                     )
 
-                replaced_generation: int | None = None
-                if replace and existing is not None:
-                    if existing.state is not EntryState.COMMITTED:
-                        self._capacity_skip_count += 1
-                        return AdmissionResult(
-                            status=AdmissionStatus.CAPACITY
-                        )
-                    replaced_generation = existing.generation
+                if size > self.max_bytes:
+                    self._oversized_skip_count += 1
+                    return AdmissionResult(
+                        status=AdmissionStatus.OVERSIZED
+                    )
 
+                replaced_generation = (
+                    existing.generation
+                    if replace and existing is not None
+                    else None
+                )
+
+            if not self._ensure_capacity_for_write(
+                normalized,
+                size,
+            ):
+                with self._metadata_lock:
+                    self._capacity_skip_count += 1
+                return AdmissionResult(
+                    status=AdmissionStatus.CAPACITY
+                )
+
+            with self._metadata_lock:
+                # admission_lock excludes concurrent byte-changing
+                # transitions, so capacity cannot race between reclaim
+                # and reservation installation.
                 self._reservation_token += 1
                 reservation = WriteReservation(
                     token=self._reservation_token,
@@ -366,6 +484,88 @@ class FileSystemCapacityManager:
 
                 del self._orphan_temps[temp_path]
                 self._reserved_bytes -= current.size
+                self._assert_invariants_locked()
+
+    def _ensure_capacity_for_write(
+        self,
+        incoming_path: str,
+        size: int,
+    ) -> bool:
+        # admission_lock must be held by the caller.
+        excluded: set[str] = {incoming_path}
+
+        while True:
+            with self._metadata_lock:
+                if (
+                    self._accounted_bytes
+                    + self._reserved_bytes
+                    + size
+                    <= self.max_bytes
+                ):
+                    return True
+
+                candidates = [
+                    entry
+                    for entry in self._entries.values()
+                    if (
+                        entry.path not in excluded
+                        and entry.state is EntryState.COMMITTED
+                        and entry.readers == 0
+                    )
+                ]
+                if not candidates:
+                    return False
+
+                victim = min(
+                    candidates,
+                    key=lambda entry: (
+                        entry.recency,
+                        entry.path,
+                    ),
+                )
+                victim.state = EntryState.EVICTING
+                victim_generation = victim.generation
+                victim_size = victim.size
+                victim_path = victim.path
+
+            try:
+                os.unlink(victim_path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                with self._metadata_lock:
+                    current = self._entries.get(victim_path)
+                    if (
+                        current is not None
+                        and current.generation == victim_generation
+                        and current.state is EntryState.EVICTING
+                    ):
+                        current.state = EntryState.COMMITTED
+                    self._eviction_failure_count += 1
+                    self._assert_invariants_locked()
+
+                excluded.add(victim_path)
+                logger.warning(
+                    "failed to evict filesystem KV cache entry %s",
+                    victim_path,
+                    exc_info=True,
+                )
+                continue
+
+            with self._metadata_lock:
+                current = self._entries.get(victim_path)
+                if (
+                    current is None
+                    or current.generation != victim_generation
+                    or current.state is not EntryState.EVICTING
+                ):
+                    raise RuntimeError(
+                        "filesystem KV cache eviction victim "
+                        "changed unexpectedly"
+                    )
+
+                del self._entries[victim_path]
+                self._accounted_bytes -= victim_size
                 self._assert_invariants_locked()
 
     def _recover_existing_finals(self) -> None:

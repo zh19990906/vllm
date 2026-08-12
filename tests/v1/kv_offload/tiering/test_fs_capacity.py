@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from vllm.v1.kv_offload.tiering.fs.capacity import (
     AdmissionStatus,
@@ -266,10 +269,14 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             )
 
     def test_capacity_reject_does_not_reserve(self) -> None:
-        first = managed_path(self.root)
-        first.write_bytes(b"x" * 70)
-
         with self.manager(max_bytes=100) as cap:
+            first = managed_path(self.root)
+            first_result = cap.admit_write(str(first), 70)
+            self.assertEqual(
+                first_result.status,
+                AdmissionStatus.RESERVED,
+            )
+
             second = managed_path(
                 self.root,
                 hash_hex="1111223344556677",
@@ -281,7 +288,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             snap = cap.snapshot()
             self.assertEqual(
                 (snap.accounted_bytes, snap.reserved_bytes),
-                (70, 0),
+                (0, 70),
             )
 
     def test_new_admission_reaps_orphan_and_releases_charge(self) -> None:
@@ -336,6 +343,302 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             self.assertEqual(snap.accounted_bytes, 0)
             self.assertEqual(snap.reserved_bytes, 40)
             self.assertEqual(snap.orphan_temp_count, 1)
+
+
+    def test_contains_many_reports_only_committed_entries(self) -> None:
+        present = managed_path(self.root)
+        present.write_bytes(b"x" * 20)
+        missing = managed_path(
+            self.root,
+            hash_hex="1111223344556677",
+        )
+
+        with self.manager(max_bytes=100) as cap:
+            self.assertTrue(cap.contains(str(present)))
+            self.assertFalse(cap.contains(str(missing)))
+            self.assertEqual(
+                cap.contains_many([str(present), str(missing)]),
+                [True, False],
+            )
+
+    def test_touch_changes_lru_victim(self) -> None:
+        first = managed_path(
+            self.root,
+            hash_hex="0011223344556677",
+        )
+        second = managed_path(
+            self.root,
+            hash_hex="1111223344556677",
+        )
+        third = managed_path(
+            self.root,
+            hash_hex="2221223344556677",
+        )
+
+        for path in (first, second, third):
+            path.write_bytes(b"x" * 30)
+
+        os.utime(first, ns=(1, 1))
+        os.utime(second, ns=(2, 2))
+        os.utime(third, ns=(3, 3))
+
+        with self.manager(max_bytes=90) as cap:
+            # first starts as oldest; touching it must make second oldest.
+            cap.touch([str(first)])
+
+            incoming = managed_path(
+                self.root,
+                hash_hex="3331223344556677",
+            )
+            result = cap.admit_write(str(incoming), 30)
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            self.assertTrue(first.exists())
+            self.assertFalse(second.exists())
+            self.assertTrue(third.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (60, 30),
+            )
+
+    def test_pinned_only_victim_blocks_eviction_until_release(self) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 80)
+
+        with self.manager(max_bytes=80) as cap:
+            pin = cap.pin_for_read(str(victim))
+            self.assertIsNotNone(pin)
+
+            incoming = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+            blocked = cap.admit_write(str(incoming), 40)
+
+            self.assertEqual(blocked.status, AdmissionStatus.CAPACITY)
+            self.assertTrue(victim.exists())
+
+            cap.release_read(pin)
+
+            admitted = cap.admit_write(str(incoming), 40)
+            self.assertEqual(admitted.status, AdmissionStatus.RESERVED)
+            self.assertFalse(victim.exists())
+
+    def test_release_read_with_invalidate_unlinks_and_unaccounts(self) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 40)
+
+        with self.manager(max_bytes=100) as cap:
+            pin = cap.pin_for_read(str(victim))
+            self.assertIsNotNone(pin)
+
+            cap.release_read(pin, invalidate=True)
+
+            self.assertFalse(cap.contains(str(victim)))
+            self.assertFalse(victim.exists())
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (0, 0),
+            )
+
+    def test_invalidate_unlink_failure_keeps_entry_accounted_and_invisible(
+        self,
+    ) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 40)
+
+        with self.manager(max_bytes=40) as cap:
+            pin = cap.pin_for_read(str(victim))
+            self.assertIsNotNone(pin)
+
+            with self.assertLogs(
+                "vllm.v1.kv_offload.tiering.fs.capacity",
+                level="WARNING",
+            ) as logs:
+                with mock.patch(
+                    "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                    side_effect=PermissionError(
+                        "injected invalid cleanup failure"
+                    ),
+                ):
+                    cap.release_read(pin, invalidate=True)
+
+            self.assertTrue(
+                any(
+                    "failed to remove invalid filesystem KV cache entry"
+                    in message
+                    for message in logs.output
+                )
+            )
+
+            # INVALID entries remain conservatively accounted, but can no
+            # longer be observed or pinned as cache hits.
+            self.assertFalse(cap.contains(str(victim)))
+            self.assertIsNone(cap.pin_for_read(str(victim)))
+            self.assertTrue(victim.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 0),
+            )
+
+            incoming = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+            result = cap.admit_write(str(incoming), 1)
+            self.assertEqual(result.status, AdmissionStatus.CAPACITY)
+            self.assertIsNone(result.reservation)
+
+    def test_failed_oldest_unlink_tries_later_victim(self) -> None:
+        oldest = managed_path(
+            self.root,
+            hash_hex="0011223344556677",
+        )
+        later = managed_path(
+            self.root,
+            hash_hex="1111223344556677",
+        )
+        oldest.write_bytes(b"x" * 40)
+        later.write_bytes(b"x" * 40)
+        os.utime(oldest, ns=(1, 1))
+        os.utime(later, ns=(2, 2))
+
+        with self.manager(max_bytes=80) as cap:
+            incoming = managed_path(
+                self.root,
+                hash_hex="2221223344556677",
+            )
+            real_unlink = os.unlink
+
+            def selective_unlink(path: str) -> None:
+                if os.path.abspath(path) == os.path.abspath(oldest):
+                    raise PermissionError("injected eviction failure")
+                real_unlink(path)
+
+            with self.assertLogs(
+                "vllm.v1.kv_offload.tiering.fs.capacity",
+                level="WARNING",
+            ) as logs:
+                with mock.patch(
+                    "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                    side_effect=selective_unlink,
+                ):
+                    result = cap.admit_write(str(incoming), 40)
+
+            self.assertTrue(
+                any(
+                    "failed to evict filesystem KV cache entry" in message
+                    for message in logs.output
+                )
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            self.assertTrue(oldest.exists())
+            self.assertFalse(later.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 40),
+            )
+
+    def test_all_victims_unavailable_returns_capacity(self) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 80)
+
+        with self.manager(max_bytes=80) as cap:
+            incoming = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+
+            with self.assertLogs(
+                "vllm.v1.kv_offload.tiering.fs.capacity",
+                level="WARNING",
+            ) as logs:
+                with mock.patch(
+                    "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                    side_effect=PermissionError(
+                        "injected eviction failure"
+                    ),
+                ):
+                    result = cap.admit_write(str(incoming), 40)
+
+            self.assertTrue(
+                any(
+                    "failed to evict filesystem KV cache entry" in message
+                    for message in logs.output
+                )
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.CAPACITY)
+            self.assertIsNone(result.reservation)
+            self.assertTrue(victim.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (80, 0),
+            )
+
+    def test_concurrent_admission_never_exceeds_capacity(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            barrier = threading.Barrier(3)
+            statuses: list[AdmissionStatus] = []
+            observed_totals: list[int] = []
+            result_lock = threading.Lock()
+
+            paths = (
+                managed_path(
+                    self.root,
+                    hash_hex="0011223344556677",
+                ),
+                managed_path(
+                    self.root,
+                    hash_hex="1111223344556677",
+                ),
+            )
+
+            def worker(path: Path) -> None:
+                barrier.wait()
+                result = cap.admit_write(str(path), 60)
+                snap = cap.snapshot()
+                with result_lock:
+                    statuses.append(result.status)
+                    observed_totals.append(
+                        snap.accounted_bytes + snap.reserved_bytes
+                    )
+
+            threads = [
+                threading.Thread(target=worker, args=(path,))
+                for path in paths
+            ]
+            for thread in threads:
+                thread.start()
+
+            barrier.wait()
+
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(
+                sorted(status.value for status in statuses),
+                sorted(
+                    [
+                        AdmissionStatus.RESERVED.value,
+                        AdmissionStatus.CAPACITY.value,
+                    ]
+                ),
+            )
+            self.assertTrue(observed_totals)
+            self.assertTrue(
+                all(total <= 100 for total in observed_totals)
+            )
 
 
 if __name__ == "__main__":
