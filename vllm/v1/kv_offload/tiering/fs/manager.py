@@ -108,6 +108,7 @@ class FileSystemTierManager(SecondaryTierManager):
         primary_kv_view: memoryview,
         tier_type: str,
         root_dir: str,
+        max_bytes: int,
         n_read_threads: int = 16,
         n_write_threads: int = 16,
         enable_kv_events: bool = False,
@@ -120,6 +121,7 @@ class FileSystemTierManager(SecondaryTierManager):
             primary_kv_view: Memoryview of the primary tier's CPU KV cache.
             tier_type: Tier type identifier, set by SecondaryTierFactory.
             root_dir: Root directory for block files.
+            max_bytes: Positive hard capacity ceiling for cache payload bytes.
             n_read_threads: Number of read-priority I/O threads.
             n_write_threads: Number of write-priority I/O threads.
             enable_kv_events: Emit BlockStored KV events for blocks
@@ -129,6 +131,15 @@ class FileSystemTierManager(SecondaryTierManager):
                 to the publishing vLLM instance.
         """
         super().__init__(offloading_spec, primary_kv_view, tier_type)
+        if (
+            isinstance(max_bytes, bool)
+            or not isinstance(max_bytes, int)
+            or max_bytes <= 0
+        ):
+            raise ValueError(
+                "max_bytes must be a positive integer number of bytes"
+            )
+        self.max_bytes = max_bytes
         self.locality = Locality(locality) if locality is not None else None
 
         self.events: list[OffloadingEvent] | None = None

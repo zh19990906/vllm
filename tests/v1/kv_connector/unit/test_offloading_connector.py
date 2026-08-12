@@ -494,7 +494,13 @@ def test_fs_tiering_offloading(tmp_path) -> None:
         "cpu_bytes_to_use": 1 << 30,
         "block_size": CPU_BLOCK_SIZES,
         "spec_name": "TieringOffloadingSpec",
-        "secondary_tiers": [{"type": "fs", "root_dir": str(tmp_path)}],
+        "secondary_tiers": [
+            {
+                "type": "fs",
+                "root_dir": str(tmp_path),
+                "max_bytes": 1099511627776,
+            }
+        ],
     }
     kv_transfer_config = KVTransferConfig(
         kv_connector="OffloadingConnector",

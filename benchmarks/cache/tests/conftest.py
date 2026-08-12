@@ -40,6 +40,7 @@ def valid_config_dict(tmp_path: Path) -> dict:
             "filesystem": {
                 "enabled": True,
                 "root_dir": str(tmp_path / "kv"),
+                "max_bytes": 1099511627776,
                 "read_threads": 32,
                 "write_threads": 16,
             },

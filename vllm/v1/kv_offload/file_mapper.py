@@ -109,6 +109,9 @@ class FileMapper:
     def get_config_file_path(self) -> str:
         return f"{self.base_path}/{_CONFIG_FILENAME}"
 
+    def get_data_dir_path(self) -> str:
+        return f"{self.base_path}_r{self.rank}"
+
     @staticmethod
     def _compute_base_path(root_dir: str, fields: dict) -> str:
         """

@@ -23,6 +23,7 @@ cache:
   filesystem:
     enabled: true
     root_dir: /mnt/nvme/vllm-kv-cache
+    max_bytes: 1099511627776
     read_threads: 32
     write_threads: 16
 workload:

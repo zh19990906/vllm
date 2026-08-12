@@ -48,6 +48,9 @@ from vllm.v1.kv_offload.tiering.fs.thread_pool import DualQueueThreadPool
 
 _BLOCK_ELEMENTS = 128 * mmap.PAGESIZE  # 2MB per block for pagesize 4096.
 _DTYPE: torch.dtype = torch.float32
+_DEFAULT_MAX_BYTES = (
+    8 * _BLOCK_ELEMENTS * torch.tensor([], dtype=_DTYPE).element_size()
+)
 _CTX = ReqContext(req_id="test")
 
 
@@ -169,6 +172,7 @@ def fs_tier(tmp_path):
         primary_kv_view=mock_view,
         tier_type="fs",
         root_dir=str(tmp_path),
+        max_bytes=_DEFAULT_MAX_BYTES,
         n_read_threads=4,
         n_write_threads=4,
     )
@@ -185,6 +189,7 @@ def fs_tier_with_events(tmp_path):
         primary_kv_view=mock_view,
         tier_type="fs",
         root_dir=str(tmp_path),
+        max_bytes=_DEFAULT_MAX_BYTES,
         n_read_threads=4,
         n_write_threads=4,
         enable_kv_events=True,
@@ -251,6 +256,7 @@ def test_invalid_path_raises_at_construction():
             primary_kv_view=mock_view,
             tier_type="fs",
             root_dir="/dev/null/invalid_path",
+            max_bytes=_DEFAULT_MAX_BYTES,
         )
 
 
@@ -264,8 +270,41 @@ def test_invalid_locality_raises_at_construction(tmp_path, locality):
             primary_kv_view=memoryview(tensor.numpy()),
             tier_type="fs",
             root_dir=str(tmp_path),
+        max_bytes=_DEFAULT_MAX_BYTES,
             locality=locality,
         )
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, "1024", True, None])
+def test_invalid_max_bytes_raises_at_construction(tmp_path, value):
+    tensor = _page_aligned_zero_tensor(4, _BLOCK_ELEMENTS)
+    kwargs = {} if value is None else {"max_bytes": value}
+    with pytest.raises((TypeError, ValueError), match="max_bytes"):
+        FileSystemTierManager(
+            offloading_spec=_MOCK_OFFLOADING_SPEC,
+            primary_kv_view=memoryview(tensor.numpy()),
+            tier_type="fs",
+            root_dir=str(tmp_path),
+            **kwargs,
+        )
+
+
+def test_max_bytes_smaller_than_block_constructs(tmp_path):
+    tensor = _page_aligned_zero_tensor(4, _BLOCK_ELEMENTS)
+    tier = FileSystemTierManager(
+        offloading_spec=_MOCK_OFFLOADING_SPEC,
+        primary_kv_view=memoryview(tensor.numpy()),
+        tier_type="fs",
+        root_dir=str(tmp_path),
+        max_bytes=1,
+        n_read_threads=1,
+        n_write_threads=1,
+    )
+    try:
+        assert tier.max_bytes == 1
+        assert tier.max_bytes < tier._block_size
+    finally:
+        tier.shutdown()
 
 
 def test_factory_forwards_locality_to_fs_tier(tmp_path):
@@ -274,6 +313,7 @@ def test_factory_forwards_locality_to_fs_tier(tmp_path):
         {
             "type": "fs",
             "root_dir": str(tmp_path),
+            "max_bytes": _DEFAULT_MAX_BYTES,
             "n_read_threads": 1,
             "n_write_threads": 1,
             "locality": "LOCAL",
@@ -497,6 +537,7 @@ def test_store_event_uses_configured_locality(tmp_path, locality, expected):
         primary_kv_view=memoryview(tensor.numpy()),
         tier_type="fs",
         root_dir=str(tmp_path),
+        max_bytes=_DEFAULT_MAX_BYTES,
         enable_kv_events=True,
         **locality_config,
     )
@@ -599,6 +640,7 @@ def test_events_require_global_kv_events_flag(tmp_path):
         primary_kv_view=memoryview(tensor.numpy()),
         tier_type="fs",
         root_dir=str(tmp_path),
+        max_bytes=_DEFAULT_MAX_BYTES,
         enable_kv_events=True,
     )
     try:
@@ -631,6 +673,7 @@ def test_cascade_store_emits_fs_event_through_tiering_manager(tmp_path):
         primary_kv_view=primary.get_kv_memoryview(),
         tier_type="fs",
         root_dir=str(tmp_path),
+        max_bytes=_DEFAULT_MAX_BYTES,
         enable_kv_events=True,
     )
     manager = TieringOffloadingManager(primary_tier=primary, secondary_tiers=[tier])

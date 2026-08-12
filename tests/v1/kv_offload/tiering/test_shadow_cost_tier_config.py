@@ -21,10 +21,15 @@ def test_runtime_tier_config_removes_cost_model_only_key() -> None:
     raw = {
         "type": "fs",
         "root_dir": "/tmp/cache",
+        "max_bytes": 4096,
         "cost_model_tier_key": "filesystem",
     }
 
     runtime = TieringOffloadingSpec._runtime_tier_config(raw)
 
-    assert runtime == {"type": "fs", "root_dir": "/tmp/cache"}
+    assert runtime == {
+        "type": "fs",
+        "root_dir": "/tmp/cache",
+        "max_bytes": 4096,
+    }
     assert raw["cost_model_tier_key"] == "filesystem"
