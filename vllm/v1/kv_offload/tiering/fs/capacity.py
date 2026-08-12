@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import os
 import re
+import shutil
+import stat
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -16,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 _HEX_RE = re.compile(r"^[0-9a-f]+$")
 _GROUP_DIR_RE = re.compile(r"^([0-9a-f]{2})_g[0-9]+$")
+_TEMP_FILENAME_RE = re.compile(
+    r"^([0-9a-f]+)\.bin_[0-9]+\.tmp$"
+)
+_CAPACITY_LOCK_FILENAME = ".capacity.lock"
 
 
 class EntryState(Enum):
@@ -102,6 +109,7 @@ class FileSystemCapacityManager:
         self.expected_file_size = expected_file_size
 
         Path(self.namespace_root).mkdir(parents=True, exist_ok=True)
+        self._lock_fd: int | None = None
 
         # Required lock order:
         # admission_lock -> metadata_lock.
@@ -122,7 +130,13 @@ class FileSystemCapacityManager:
         self._capacity_skip_count = 0
         self._eviction_failure_count = 0
 
-        self._recover_existing_finals()
+        try:
+            self._acquire_namespace_lock()
+            self._warn_if_physical_space_below_logical_limit()
+            self._recover_existing_finals()
+        except BaseException:
+            self._release_namespace_lock()
+            raise
 
     def __enter__(self) -> FileSystemCapacityManager:
         return self
@@ -131,10 +145,11 @@ class FileSystemCapacityManager:
         self.close()
 
     def close(self) -> None:
-        # Best-effort only at this stage. Task 5 owns strict restart/temp
-        # recovery semantics.
-        with self._admission_lock:
-            self._reap_orphan_temps()
+        try:
+            with self._admission_lock:
+                self._reap_orphan_temps()
+        finally:
+            self._release_namespace_lock()
 
     def snapshot(self) -> CapacitySnapshot:
         with self._metadata_lock:
@@ -568,42 +583,186 @@ class FileSystemCapacityManager:
                 self._accounted_bytes -= victim_size
                 self._assert_invariants_locked()
 
-    def _recover_existing_finals(self) -> None:
-        root = Path(self.namespace_root)
-        recovered: list[tuple[int, str, int]] = []
+    def _warn_if_physical_space_below_logical_limit(self) -> None:
+        try:
+            free_bytes = shutil.disk_usage(self.namespace_root).free
+        except OSError:
+            logger.warning(
+                "failed to query physical free space for filesystem KV "
+                "cache namespace %s; logical max_bytes remains %d",
+                self.namespace_root,
+                self.max_bytes,
+                exc_info=True,
+            )
+            return
 
-        for path in root.rglob("*.bin"):
-            if not self._is_managed_final(path):
-                continue
-            if path.is_symlink():
-                continue
-            try:
-                stat_result = path.stat()
-            except FileNotFoundError:
-                continue
-            if not path.is_file():
-                continue
-
-            size = stat_result.st_size
-            if (
-                self.expected_file_size is not None
-                and size != self.expected_file_size
-            ):
-                raise ValueError(
-                    f"managed final has unexpected size: {path}"
-                )
-
-            recovered.append(
-                (stat_result.st_mtime_ns, str(path), size)
+        if free_bytes < self.max_bytes:
+            logger.warning(
+                "filesystem KV cache logical max_bytes=%d exceeds current "
+                "physical free space=%d for %s; max_bytes remains the "
+                "configured logical ceiling and physical ENOSPC/EDQUOT "
+                "may occur earlier",
+                self.max_bytes,
+                free_bytes,
+                self.namespace_root,
             )
 
+    def _acquire_namespace_lock(self) -> None:
+        if self._lock_fd is not None:
+            raise RuntimeError("capacity lock is already held")
+
+        lock_path = os.path.join(
+            self.namespace_root,
+            _CAPACITY_LOCK_FILENAME,
+        )
+        flags = os.O_CREAT | os.O_RDWR
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+
+        try:
+            fd = os.open(lock_path, flags, 0o600)
+        except OSError as exc:
+            raise RuntimeError(
+                f"failed to open filesystem KV cache capacity lock: "
+                f"{lock_path}"
+            ) from exc
+
+        try:
+            fcntl.flock(
+                fd,
+                fcntl.LOCK_EX | fcntl.LOCK_NB,
+            )
+        except OSError as exc:
+            os.close(fd)
+            raise RuntimeError(
+                "filesystem KV cache namespace is already owned "
+                f"or its capacity lock cannot be acquired: "
+                f"{self.namespace_root}"
+            ) from exc
+
+        self._lock_fd = fd
+
+    def _release_namespace_lock(self) -> None:
+        fd = self._lock_fd
+        if fd is None:
+            return
+
+        self._lock_fd = None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def _recover_existing_finals(self) -> None:
+        recovered: list[tuple[int, str, int]] = []
+        root = Path(self.namespace_root)
+        lock_path = root / _CAPACITY_LOCK_FILENAME
+        directories = [root]
+
+        while directories:
+            directory = directories.pop()
+
+            try:
+                with os.scandir(directory) as iterator:
+                    children = sorted(
+                        iterator,
+                        key=lambda child: child.name,
+                    )
+            except OSError as exc:
+                raise RuntimeError(
+                    "failed to scan filesystem KV cache namespace: "
+                    f"{directory}"
+                ) from exc
+
+            for child in children:
+                path = Path(child.path)
+
+                if path == lock_path:
+                    continue
+
+                try:
+                    metadata = child.stat(follow_symlinks=False)
+                except OSError as exc:
+                    raise RuntimeError(
+                        "failed to inspect filesystem KV cache artifact: "
+                        f"{path}"
+                    ) from exc
+
+                mode = metadata.st_mode
+
+                if stat.S_ISDIR(mode):
+                    directories.append(path)
+                    continue
+
+                if stat.S_ISLNK(mode):
+                    raise RuntimeError(
+                        "unknown symlink artifact in filesystem KV cache "
+                        f"namespace: {path}"
+                    )
+
+                if not stat.S_ISREG(mode):
+                    raise RuntimeError(
+                        "unknown special artifact in filesystem KV cache "
+                        f"namespace: {path}"
+                    )
+
+                if self._is_recognized_temp(path):
+                    self._startup_unlink(
+                        path,
+                        operation="temporary artifact cleanup",
+                    )
+                    continue
+
+                if not self._is_managed_final(path):
+                    raise RuntimeError(
+                        "unknown filesystem KV cache artifact: "
+                        f"{path}"
+                    )
+
+                size = metadata.st_size
+                if (
+                    self.expected_file_size is not None
+                    and size != self.expected_file_size
+                ):
+                    self._startup_unlink(
+                        path,
+                        operation=(
+                            "corrupt final size cleanup "
+                            f"(expected {self.expected_file_size}, "
+                            f"found {size})"
+                        ),
+                    )
+                    continue
+
+                recovered.append(
+                    (
+                        metadata.st_mtime_ns,
+                        str(path),
+                        size,
+                    )
+                )
+
+        # Restart recency is deterministic but intentionally approximate:
+        # oldest mtime first, stable path tie-break second.
         recovered.sort(key=lambda item: (item[0], item[1]))
 
-        for _, path, size in recovered:
+        total = sum(size for _, _, size in recovered)
+        first_retained = 0
+
+        while total > self.max_bytes:
+            _, victim_path, victim_size = recovered[first_retained]
+            self._startup_unlink(
+                Path(victim_path),
+                operation="restart capacity shrink eviction",
+            )
+            total -= victim_size
+            first_retained += 1
+
+        for _, recovered_path, size in recovered[first_retained:]:
             self._generation += 1
             self._clock += 1
-            self._entries[path] = EntryRecord(
-                path=path,
+            self._entries[recovered_path] = EntryRecord(
+                path=recovered_path,
                 size=size,
                 recency=self._clock,
                 readers=0,
@@ -612,12 +771,31 @@ class FileSystemCapacityManager:
             )
             self._accounted_bytes += size
 
-        if self._accounted_bytes > self.max_bytes:
-            raise ValueError(
-                "recovered filesystem KV cache exceeds max_bytes"
-            )
-
         self._assert_invariants_locked()
+
+    def _startup_unlink(
+        self,
+        path: Path,
+        *,
+        operation: str,
+    ) -> None:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            # Absence is the state we needed to confirm.
+            return
+        except OSError as exc:
+            raise RuntimeError(
+                f"filesystem KV cache {operation} failed: {path}"
+            ) from exc
+
+    def _is_recognized_temp(self, path: Path) -> bool:
+        match = _TEMP_FILENAME_RE.fullmatch(path.name)
+        if match is None:
+            return False
+
+        final_path = path.with_name(f"{match.group(1)}.bin")
+        return self._is_managed_final(final_path)
 
     def _is_managed_final(self, path: Path) -> bool:
         try:
