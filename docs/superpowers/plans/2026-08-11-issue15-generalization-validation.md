@@ -65,6 +65,7 @@ Expected implementation scope has no change under `vllm/v1/kv_offload/` or any a
 **Files:** No repository changes.
 
 **Interfaces:**
+
 - Consumes: live GitHub `main` SHA re-verified at execution time.
 - Produces: `/code/vllm-worktrees/issue15-generalization-validation` based on a Pod mirror SHA exactly matching live GitHub `main`.
 
@@ -122,10 +123,12 @@ Expected: clean isolated worktree at the verified SHA.
 ### Task 2: Freeze the Issue #14 calibrated profile as a first-class artifact
 
 **Files:**
+
 - Create: `benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json`
 - Create: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
+
 - Consumes: `docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json["calibrated_profile"]`.
 - Produces: a top-level `cache_cost_model` mapping accepted by existing `load_profile_artifact()` and exactly equal to the source calibration result.
 
@@ -218,10 +221,12 @@ git commit -m "test: freeze issue 14 cost profile for holdout"
 ### Task 3: Make benchmark GPU provenance sufficient for Issue #15
 
 **Files:**
+
 - Modify: `benchmarks/cache/metrics.py`
 - Create: `benchmarks/cache/tests/test_issue15_environment_provenance.py`
 
 **Interfaces:**
+
 - Consumes: existing `_ENVIRONMENT_COMMANDS` and `collect_environment_evidence()`.
 - Produces: `environment.json` GPU inventory lines containing physical index and UUID as well as name/memory/driver.
 
@@ -276,10 +281,12 @@ git commit -m "bench: capture GPU UUID in cache provenance"
 ### Task 4: Add a neutral Issue #15 condition loader
 
 **Files:**
+
 - Create: `benchmarks/cache/cost_model_generalization.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
+
 - Produces `GeneralizationCondition` and `load_generalization_condition(path: Path, percentile: str = "p95")`.
 - Reuses existing `DecisionSample` and `CalibrationDataset` rather than changing #14 calibration semantics.
 
@@ -335,10 +342,12 @@ git commit -m "feat: load cost model generalization conditions"
 ### Task 5: Implement frozen-profile evaluation, gate semantics, and scale diagnostics
 
 **Files:**
+
 - Modify: `benchmarks/cache/cost_model_generalization.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
+
 - Produces `evaluate_frozen_condition(condition, profile, *, profile_identity)`.
 - Produces `diagnose_curve_scaling(evaluation)`.
 - Calls existing `evaluate_profile()` only; never calls `derive_calibrated_profile()`.
@@ -409,10 +418,12 @@ git commit -m "feat: evaluate and diagnose frozen cost profiles"
 ### Task 6: Add the deterministic frozen-profile CLI
 
 **Files:**
+
 - Create: `benchmarks/cache/evaluate_cost_model_generalization.py`
 - Modify: `benchmarks/cache/tests/test_cost_model_generalization.py`
 
 **Interfaces:**
+
 - Required args: `--input`, `--profile`, `--output`.
 - Optional args: `--percentile p50|p95|p99`, default P95; `--diagnose`; `--check`.
 - No CLI option may alter frozen acceptance thresholds.
@@ -459,10 +470,12 @@ git commit -m "feat: add frozen profile generalization evaluator"
 ### Task 7: Build structured condition datasets from run-suite artifacts
 
 **Files:**
+
 - Create: `benchmarks/cache/build_generalization_dataset.py`
 - Create: `benchmarks/cache/tests/test_build_generalization_dataset.py`
 
 **Interfaces:**
+
 - CLI args: `--condition-id`, `--recompute-run`, `--cpu-run`, `--filesystem-run`, `--percentile`, `--output`.
 - Model, concurrency, request rate, requests-per-case, TP size, selected GPU index, GPU UUID, environment path, and run paths are inferred from manifests/environment/records.
 
@@ -779,6 +792,7 @@ Record condition/tier, requested and external-token region, raw error/decision, 
 ### Task 14: Produce final evidence and Issue #16 eligibility handoff
 
 **Files:**
+
 - Create: `docs/engineering/validation/2026-08-11-issue15-generalization-validation.json`
 - Create: `docs/engineering/validation/2026-08-11-issue15-generalization-validation.md`
 - Create: `docs/engineering/handoffs/2026-08-11-issue16-active-decision-handoff.md`

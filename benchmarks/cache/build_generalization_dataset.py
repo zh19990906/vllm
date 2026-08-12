@@ -439,9 +439,7 @@ def build_generalization_dataset(
     cpu_run = Path(cpu_run)
     filesystem_run = Path(filesystem_run)
     cpu_correction_run = (
-        Path(cpu_correction_run)
-        if cpu_correction_run is not None
-        else None
+        Path(cpu_correction_run) if cpu_correction_run is not None else None
     )
 
     recompute_manifest = _load_json(recompute_run / "manifest.json")
@@ -509,8 +507,7 @@ def build_generalization_dataset(
         _record_pair_key(record): record for record in cpu_correction_records
     }
     cpu_correction_recompute_by_key = {
-        _record_pair_key(record): record
-        for record in cpu_correction_recompute_records
+        _record_pair_key(record): record for record in cpu_correction_recompute_records
     }
 
     recompute_keys = set(recompute_by_key)

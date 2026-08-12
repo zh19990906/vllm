@@ -905,7 +905,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
                 filesystem,
                 lambda record: record["normalized"]["prometheus"]["delta"].update(
                     {
-                        'vllm:kv_offload_allocation_failure'
+                        "vllm:kv_offload_allocation_failure"
                         '{engine="0",model_name="fixture"}': {
                             "reason": None,
                             "value": 4.0,
@@ -1009,8 +1009,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             )
 
         cpu_sample = next(
-            row for row in result["samples"]
-            if row["source"] == "cpu_primary"
+            row for row in result["samples"] if row["source"] == "cpu_primary"
         )
         self.assertEqual(cpu_sample["latency_ms"]["restore"]["p95"], 21.0)
         self.assertEqual(
@@ -1019,8 +1018,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
         )
 
         cpu_exclusions = [
-            row for row in result["excluded_samples"]
-            if row["source"] == "cpu_primary"
+            row for row in result["excluded_samples"] if row["source"] == "cpu_primary"
         ]
         self.assertEqual(len(cpu_exclusions), 1)
         self.assertEqual(
@@ -1072,9 +1070,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
 
             results_path = corrected_run / "scenario-results.jsonl"
             with results_path.open("a", encoding="utf-8") as handle:
-                handle.write(
-                    json.dumps(corrected_recompute, sort_keys=True) + "\n"
-                )
+                handle.write(json.dumps(corrected_recompute, sort_keys=True) + "\n")
 
             result = build_generalization_dataset(
                 condition_id="c-model",
@@ -1086,8 +1082,7 @@ class GeneralizationDatasetFinalContractTests(unittest.TestCase):
             )
 
         cpu_sample = next(
-            row for row in result["samples"]
-            if row["source"] == "cpu_primary"
+            row for row in result["samples"] if row["source"] == "cpu_primary"
         )
 
         self.assertEqual(
