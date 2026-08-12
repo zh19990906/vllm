@@ -3,7 +3,7 @@
 **Date:** 2026-08-12  
 **Issue:** #31 — `[P0] 为 filesystem KV cache 增加硬容量上限与淘汰机制`  
 **Base:** `main@c4d9fce61ec5a8eadc24dab8698eca7705d005bf`  
-**Status:** Approved design; implementation not started
+**Status:** Approved design; self-reviewed; implementation not started
 
 ## 1. Goal and product contract
 
@@ -13,9 +13,9 @@ V1 follows the product principle:
 
 For an explicitly configured local filesystem secondary tier, the configured capacity is a **hard logical ceiling** for cache-owned payload bytes, independent of current free space on the underlying filesystem.
 
-The implementation must preserve inference correctness when cache writes cannot be admitted or when filesystem I/O fails. The filesystem tier is an optimization tier; capacity pressure must degrade cache effectiveness, not model correctness.
+The filesystem tier is an optimization tier. Capacity rejection or filesystem write failure must degrade cache effectiveness without breaking inference correctness.
 
-Issue #31 establishes the bounded safety mechanism only. Later work may improve placement or admission policy, but it must build on the hard-cap accounting and reservation rules defined here.
+Issue #31 establishes the bounded safety mechanism only. Later work may improve admission, placement, or eviction economics, but it must build on the accounting and reservation rules defined here.
 
 ## 2. Scope and non-goals
 
@@ -34,7 +34,7 @@ Issue #31 establishes the bounded safety mechanism only. Later work may improve 
 - restart accounting recovery
 - synchronous startup shrink when usage exceeds a new smaller max
 - stale temp cleanup and unknown-artifact fail-fast behavior
-- single-owner namespace protection
+- single-owner bounded namespace protection
 - capacity/event/metric observability
 - real-filesystem validation of the hard-cap invariant
 
@@ -69,11 +69,11 @@ Rules:
 - `max_bytes == 0`: configuration error
 - negative value: configuration error
 - float/string/bool: configuration error
-- positive value smaller than one cache entry: valid configuration; oversized entries are skipped before I/O
+- positive value smaller than one cache entry: valid; oversized entries are skipped before I/O
 
 A higher-level user setting representing “local cache size = 0” should omit the filesystem tier rather than instantiate a zero-capacity tier.
 
-`max_bytes` is a resource-policy property and **must not participate in the `FileMapper` namespace hash**. Restarting a compatible cache namespace with a smaller `max_bytes` must reuse existing files and synchronously shrink the namespace before READY.
+`max_bytes` is a resource-policy property and **must not participate in the `FileMapper` namespace hash**. Restarting a compatible cache namespace with a smaller `max_bytes` must reuse existing files and synchronously shrink that namespace before READY.
 
 ## 4. Capacity contract and authoritative accounting
 
@@ -85,44 +85,64 @@ accounted_bytes + reserved_bytes <= max_bytes
 
 Definitions:
 
-- `accounted_bytes`: logical sizes of committed cache-owned final payload files still managed by this capacity owner.
-- `reserved_bytes`: complete payload sizes of writes that have been admitted but have not yet committed or aborted.
+- `accounted_bytes`: logical sizes of committed cache-owned final payload files still managed by this owner.
+- `reserved_bytes`: complete payload sizes of admitted writes that have not yet committed or aborted.
 
-The authoritative source is split by lifecycle:
+Authoritative accounting is lifecycle-specific:
 
-1. **Startup:** filesystem scan of the owned data namespace rebuilds committed usage.
-2. **Runtime:** the in-memory capacity manager becomes the authoritative accounting state. All owned final-file mutations must flow through its state machine.
+1. **Startup:** scan the owned filesystem data namespace to rebuild committed usage.
+2. **Runtime:** the in-memory capacity manager is authoritative. Every owned final-file mutation must flow through its state machine.
 
-The implementation must not re-run `du` or a full-directory scan on every admission. Runtime correctness comes from atomic in-memory accounting plus exclusive namespace ownership.
+Runtime admission must not re-run `du` or scan the full namespace. Correctness comes from atomic in-memory accounting plus exclusive bounded-namespace ownership.
 
 ### Temp files count
 
-Reservations cover the full incoming payload size before the first payload write. This ensures temp-file peak usage is part of the hard-cap contract.
+A reservation covers the full incoming payload size **before the first payload write**. Temp-file peak bytes are therefore part of the hard-cap contract.
 
-For replacement of an existing file, reserve the **full new size**, not only the delta, because old final and new temp may coexist until `os.replace()` succeeds.
+For replacement, reserve the **full new size**, not only `new-old`, because old final and new temp may coexist before `os.replace()`.
 
-The hard-cap applies to cache-owned payload file logical bytes (`st_size`) and active temp-payload reservations. Directory/inode/control-file/journal/filesystem-allocation overhead is outside the exact application-level byte contract.
+The exact application contract covers cache-owned payload logical bytes (`st_size`) plus active payload reservations. Directory/inode/control-file/journal/filesystem-allocation overhead is outside the exact byte quota.
 
-## 5. State model
+## 5. Runtime state model
 
-The capacity manager tracks final-path identity, size, recency, readers, and a state/generation token.
+Self-review clarification: committed-entry state and writer state are separate so replacement can preserve the old committed record while a new temp payload is in flight.
 
-### Entry states
+### Committed entry record
 
-- `COMMITTED`: final payload is valid and accounted; may serve reads; eligible for eviction only when `readers == 0`.
-- `WRITING`: a writer owns an active reservation for this path; at most one writer may own a path at a time.
-- `EVICTING`: an admission flow has exclusively claimed this committed entry as a victim; its bytes remain accounted until deletion is confirmed.
-- `INVALID`: the file is no longer trusted for serving after a load/corruption failure, but its bytes remain accounted until deletion is confirmed.
+Each known final path may have an `EntryRecord` with:
 
-Every state transition that affects accounting must verify the expected entry/reservation identity to avoid ABA-style double-accounting.
+- `state`: `COMMITTED`, `EVICTING`, or `INVALID`
+- `size`
+- `readers`
+- `recency`
+- identity/generation token
+
+Semantics:
+
+- `COMMITTED`: valid final payload, accounted, may serve reads; evictable only when `readers == 0`.
+- `EVICTING`: admission has exclusively claimed this entry; bytes remain accounted until deletion is confirmed; no new read pin.
+- `INVALID`: no longer trusted for serving after load/corruption failure; bytes remain accounted until deletion is confirmed.
+
+### Active writer/reservation record
+
+Separately, a `pending_writes[path] -> Reservation` map records an active writer. At most one active writer may own a path.
+
+For a new path, a reservation may exist without an `EntryRecord`.
+
+For a low-level replacement operation, the old committed `EntryRecord` remains installed and accounted while a distinct reservation owns the replacement temp payload. Normal content-addressed runtime stores do not intentionally rewrite an already-valid committed entry.
+
+All finalize/abort/reconcile operations verify expected entry/reservation identity so stale callbacks cannot double-add or double-subtract bytes.
 
 ## 6. Reservation lifecycle
 
-For a new entry:
+For a normal new entry:
 
 ```text
 worker starts
-  -> check existing / duplicate writer / oversize
+  -> inspect committed/pending state
+  -> existing: idempotent skip
+  -> duplicate writer: normal duplicate-inflight skip
+  -> incoming > max: oversized capacity skip
   -> admission
   -> evict if needed
   -> grant reservation
@@ -131,13 +151,13 @@ worker starts
   -> commit reservation
 ```
 
-Admission must ensure:
+Admission must establish:
 
 ```text
 accounted + reserved + incoming <= max
 ```
 
-before the reservation is granted.
+before adding the reservation.
 
 ### Commit
 
@@ -146,10 +166,11 @@ After filesystem replacement succeeds:
 ```text
 reserved -= incoming
 accounted += final_size
-WRITING -> COMMITTED
+remove pending writer
+install COMMITTED entry
 ```
 
-A very small window in which the final file exists while bytes are still classified as `reserved` is safe because it over-counts rather than under-counts.
+The short window after `os.replace()` but before logical commit is safe because bytes are still classified as reserved, so accounting is conservative rather than optimistic.
 
 ### Abort
 
@@ -158,31 +179,31 @@ On write/replace/cancellation failure after reservation:
 ```text
 cleanup temp if present
 reserved -= incoming
-remove WRITING ownership
+remove pending writer
 ```
 
-Abort must be idempotent so nested exception/finally cleanup cannot release the same reservation twice.
+Abort must be idempotent.
 
 ### Queue cancellation
 
-Reservations are acquired only when a worker task actually starts, not when `submit_store()` enqueues it. Therefore queued tasks cancelled during shutdown cannot leak capacity reservations.
+Reservations are acquired only when a worker task starts, not in `submit_store()`. Queued tasks cancelled before execution therefore cannot leak capacity reservations.
 
-## 7. Existing key and replace semantics
+## 7. Existing key and replacement semantics
 
 Normal content-addressed runtime behavior remains idempotent:
 
-- if a valid committed entry already exists for the key, skip the physical store
-- no reservation
+- valid committed entry already exists -> skip physical store
+- no new reservation
 - no temp file
 - no extra accounted bytes
 - update LRU recency
 
-The lower-level capacity/accounting API must nevertheless support replacement correctly for deterministic tests and future callers:
+The lower-level capacity API still supports replacement for deterministic accounting tests and future callers:
 
 - reserve full new size
-- preserve old committed accounting until replacement succeeds
+- old entry remains committed/accounted while the temp exists
 - on success: `accounted = accounted - old + new`, `reserved -= new`
-- on failure: old committed entry remains unchanged and reservation is released
+- on failure: old entry/accounting unchanged, reservation released
 
 Same-size, larger, and smaller replacement accounting must all be tested.
 
@@ -196,11 +217,11 @@ Short-held lock protecting:
 
 - `accounted_bytes`
 - `reserved_bytes`
-- entry index and state
+- entry index/state
+- pending writers/reservation identity
 - readers
 - LRU recency
-- writer/reservation identity
-- metric snapshot/counter state tied to accounting
+- capacity counters/snapshot state
 
 ### `admission_lock`
 
@@ -211,7 +232,7 @@ Serializes the capacity decision sequence:
 - victim unlink/reconcile
 - reservation grant
 
-Global lock ordering is:
+Global lock ordering:
 
 ```text
 admission_lock -> metadata_lock
@@ -219,33 +240,46 @@ admission_lock -> metadata_lock
 
 Code holding `metadata_lock` must never wait for `admission_lock`.
 
-Large payload reads/writes never hold either capacity lock. Victim `unlink()` runs outside `metadata_lock`, but may remain inside the admission serialization so a second admission cannot consume capacity that is still being reclaimed.
+Large payload read/write/replace operations never hold either capacity lock. Victim `unlink()` runs outside `metadata_lock`, but may remain under admission serialization so a second admission cannot race victim selection/reclaimed capacity.
 
-This preserves concurrent payload I/O after reservations are granted while making admission/victim choice deterministic and race-safe.
+Result: capacity allocation is serialized; already-admitted payload I/O remains concurrent.
 
 ## 9. Concurrent writer rules
 
 ### Different keys
 
-Multiple writers may perform real I/O concurrently once each has a reservation. Reservations participate in the same atomic accounting domain, so two writers cannot both consume the same free capacity.
+Multiple workers may perform payload I/O concurrently after receiving reservations. Because reservations are atomically included in the invariant, two writers cannot both consume the same free capacity.
 
 ### Same key
 
-At most one path writer may exist.
+At most one active writer owns a path.
 
-- first writer claims `WRITING` and obtains the reservation
-- later writer for the same path observes `WRITING` and returns a normal duplicate-inflight skip
-- duplicate-inflight is not a capacity rejection and does not write a temp file
+- first writer installs `pending_writes[path]` and reserves bytes
+- second writer observes the pending writer and returns a normal duplicate-inflight skip
+- no second reservation/temp/eviction
+- duplicate-inflight is not a capacity rejection
 - if the first writer fails, a later independent store opportunity may retry
 
-## 10. Read pins, lookup, and eviction
+## 10. Lookup, load pinning, and promotion race
 
-### Read pins
+### Runtime lookup source
 
-Before real load I/O is queued, a valid committed entry must be pinned under `metadata_lock`:
+In bounded mode, the existing async lookup mechanism may remain, but its membership answer must come from the in-memory capacity state rather than raw `os.path.exists()` as the primary truth.
+
+- `COMMITTED`: HIT candidate
+- `EVICTING`: MISS/RETRY, never stable HIT
+- `INVALID`: MISS
+- no committed entry: MISS, including a new-path pending writer
+
+Keeping the async lookup wrapper preserves existing scheduler/deferred-lookup behavior while removing filesystem existence as authoritative capacity membership.
+
+### Read pin
+
+Before a real load task is queued, `submit_load()` must pin the entry under `metadata_lock`:
 
 ```text
-COMMITTED -> readers += 1
+require entry is COMMITTED
+readers += 1
 ```
 
 The worker unpins in `finally`.
@@ -256,19 +290,18 @@ Eviction eligibility requires:
 state == COMMITTED and readers == 0
 ```
 
-This prevents the manager from unlinking an entry being read by its own process and avoids POSIX unlinked-open-file accounting ambiguity.
+### Lookup-to-submit race
 
-### Lookup
+A block may have returned HIT during async lookup but be claimed/removed before the later promotion `submit_load()` call. Therefore `submit_load()` must revalidate and pin.
 
-In bounded mode, runtime lookup should use the in-memory authoritative state rather than `os.path.exists()` as the primary truth:
+If revalidation/pin fails:
 
-- `COMMITTED`: HIT candidate
-- `WRITING`: MISS/RETRY, never HIT
-- `EVICTING`: MISS/RETRY, never HIT
-- `INVALID`: MISS
-- absent: MISS
+- do not perform filesystem read I/O
+- report the promotion load job as unsuccessful
+- let the existing tiering manager call primary `complete_write(..., success=False)` so the reserved/not-ready primary slot is released correctly
+- do not treat the missing pin as a successful load
 
-Filesystem errors such as external deletion may trigger conservative reconcile paths, but normal runtime lookup does not re-scan the filesystem.
+This preserves existing promotion failure semantics and inference fallback while preventing read/eviction races.
 
 ## 11. LRU policy
 
@@ -277,25 +310,23 @@ Issue #31 implements deterministic runtime LRU only.
 - successful commit receives newest recency
 - `touch()` updates committed-entry recency in memory
 - no runtime `mtime` updates
-- no frequency/TTL/cost/size-aware victim scoring
+- no frequency/TTL/cost/size-aware scoring
 
-Victims are the oldest eligible committed entries (`readers == 0`).
+Victims are the oldest eligible committed entries.
 
-This is deliberately a safety policy, not #19’s future economic policy.
+This is a bounded-safety policy, not #19’s future economic policy.
 
 ## 12. Eviction semantics
 
-Victim selection and claim are atomic under `metadata_lock`:
+Victim claim is atomic under `metadata_lock`:
 
 ```text
 COMMITTED -> EVICTING
 ```
 
-The victim’s size remains part of `accounted_bytes` until the filesystem confirms the file no longer exists.
+The victim remains in `accounted_bytes` until the filesystem confirms absence.
 
 ### Successful unlink
-
-After successful deletion:
 
 ```text
 remove entry
@@ -304,33 +335,35 @@ accounted -= victim.size
 
 ### `ENOENT`
 
-Because the file is confirmed absent, runtime may reconcile by removing the tracked entry and reducing accounting. The finalize step must verify the same entry/generation is still installed at that path.
+Confirmed absence may be reconciled by removing the tracked entry and reducing accounting, after verifying the same entry/generation is still installed.
 
 ### Other unlink failure
 
 - `EVICTING -> COMMITTED`
 - `accounted_bytes` unchanged
-- runtime admission may try another victim
-- if insufficient reclaimable bytes remain, the incoming store becomes a capacity skip
+- runtime admission may try another eligible victim
+- if insufficient reclaimable capacity remains, incoming store becomes a capacity skip
 
-Never release capacity merely because an unlink was attempted.
+Never release capacity merely because unlink was attempted.
 
 ## 13. Capacity skip versus I/O failure
 
-Capacity pressure is a normal best-effort cache degradation, not a filesystem error.
+Capacity pressure is normal best-effort cache degradation.
 
-Normal skip reasons include:
+Normal skip classes:
 
-- existing committed key
+- already committed
 - duplicate in-flight writer
-- oversized incoming entry
-- logical capacity cannot be satisfied because no eligible victim can reclaim enough space
+- oversized entry
+- no evictable capacity
 
-Oversized entries (`incoming > max_bytes`) are rejected before eviction, reservation, temp creation, or payload write.
+Only `oversized` and `no_evictable_capacity` are capacity-rejection metrics; existing/duplicate skips are idempotence/deduplication outcomes.
 
-True I/O failures include write, replace, permission, filesystem errors, `ENOSPC`, and `EDQUOT`.
+Oversized entry (`incoming > max_bytes`) is rejected before eviction, reservation, temp creation, or payload write.
 
-`ENOSPC`/`EDQUOT` may occur even when logical accounting is below `max_bytes`; they must roll back the reservation and temp state but must not change or auto-resize the configured logical quota.
+True I/O failure includes write/replace/permission/filesystem errors, `ENOSPC`, and `EDQUOT`.
+
+`ENOSPC`/`EDQUOT` may occur below logical `max_bytes`; they roll back temp/reservation state but do not resize or reinterpret the logical quota.
 
 ## 14. Store job and KV-event semantics
 
@@ -340,37 +373,35 @@ Internally distinguish at least:
 - `SKIPPED`
 - `IO_FAILED`
 
-The public `JobResult` contract does not need to expand for #31.
+The public `JobResult` need not expand for #31.
 
 - committed task: normal completion
-- skipped task: normal best-effort completion
+- normal skip: normal best-effort completion
 - real I/O failure: task failure
 
 ### Stored events
 
-Capacity skips must never be reported as stored entries.
+Capacity-skipped or deduplicated blocks must never be falsely reported as newly stored.
 
-For a store job with committed + normal-skipped blocks and no real I/O failure:
+For a job with committed + normal-skipped blocks and no real I/O failure:
 
 - job may complete successfully
 - emit `BlockStored` only for the actually committed subset
 
 If all blocks are skipped, emit no stored event.
 
-For a job containing a real I/O failure, preserve the existing conservative contract:
+For any store job containing a real I/O failure, preserve the current conservative behavior:
 
 - `JobResult.success == False`
-- emit no `BlockStored` event for the failed job, even if some sibling blocks physically committed
-
-This avoids redefining existing partial-I/O-failure event semantics in #31.
+- no `BlockStored` event for that failed job, even if sibling blocks physically committed
 
 ## 15. Load corruption and accounting-aware invalidation
 
 Raw load I/O must not directly delete an owned final file.
 
-On load corruption/unreadable failure:
+On corruption/unreadable failure:
 
-1. mark the entry `INVALID` so it is no longer served to new readers
+1. mark the entry `INVALID` so no new load pin may be granted
 2. unpin the current reader
 3. once readers reach zero, attempt accounting-aware unlink
 4. only after confirmed deletion reduce `accounted_bytes`
@@ -391,22 +422,20 @@ open dedicated ownership lock file
 -> hold fd for manager lifetime
 ```
 
-On Linux, use an advisory primitive such as `fcntl.flock(LOCK_EX | LOCK_NB)`.
+On Linux use a primitive such as `fcntl.flock(LOCK_EX | LOCK_NB)`.
 
-- a second bounded manager for the same data namespace fails fast
-- normal close releases the lock
-- process death releases the kernel lock even if the lock file remains
-- the lock file is control metadata and not part of payload `max_bytes`
+- second participating bounded manager for the same data namespace fails fast
+- normal close releases lock
+- process death releases kernel lock even if the lock file remains
+- lock file is control metadata, excluded from payload `max_bytes`
 
-This is **not** a cross-process quota manager. It forbids two independent bounded accounting owners from concurrently controlling the same namespace.
+This is **not** cross-process quota coordination. It forbids two independent bounded accounting owners from simultaneously managing the same namespace.
 
-If reliable required locking semantics are unavailable, construction fails rather than silently weakening the hard-cap guarantee.
+If the required locking operation itself is unavailable/fails, construction fails rather than silently weakening the contract. #31 does not attempt to prove semantics of arbitrary external/non-cooperating filesystem writers.
 
 ## 17. Restart recovery and READY gate
 
-Recovery must finish synchronously before the worker-facing tier becomes READY.
-
-Order:
+Recovery completes synchronously before the tier accepts normal work:
 
 ```text
 acquire ownership
@@ -419,40 +448,36 @@ acquire ownership
 -> READY
 ```
 
-No store/load/lookup may begin while recovery is incomplete.
+No normal store/load/lookup begins while recovery is incomplete.
 
 ### Scan boundary
 
-Scan only the current `FileMapper` data namespace, not the entire user `root_dir` and not other model/config/rank namespaces.
+Scan only the current `FileMapper` data namespace, not the whole configured `root_dir` and not other model/config/rank namespaces.
 
 ### Artifact classification
 
-1. **Valid final:** expected mapper layout/name and valid size; restore as `COMMITTED`.
+1. **Valid final:** expected mapper layout/name and expected size; restore as `COMMITTED`.
 2. **Recognized stale temp:** definitely produced by this tier’s temp naming convention; delete before READY. Cleanup failure is fatal.
-3. **Recognized corrupt final:** final naming/layout is ours but size is invalid; do not serve; delete before READY. Cleanup failure is fatal.
+3. **Recognized corrupt final:** final naming/layout is ours but size invalid; do not serve; delete before READY. Cleanup failure is fatal.
 4. **Unknown regular artifact:** do not delete and do not ignore; fail construction with diagnostics.
 
-Empty directories are harmless and need not be aggressively cleaned.
+Empty directories are harmless and need not be aggressively removed.
 
-### Restart reservations
-
-No reservation survives process restart. Recovered `reserved_bytes` always begins at zero.
+No reservation survives restart; recovered `reserved_bytes` starts at zero.
 
 ## 18. Restart LRU recovery
 
-No persistent LRU metadata DB/WAL is introduced.
+No persistent LRU DB/WAL/index is introduced.
 
-For valid recovered finals, cold-start eviction ordering is built from:
+For valid recovered finals, cold-start ordering is:
 
 ```text
 (st_mtime_ns, normalized_relative_path)
 ```
 
-The path tie-break makes ordering deterministic when timestamps match.
+Path tie-break makes equal timestamps deterministic.
 
-After READY, runtime commit/touch operations use an in-memory monotonic recency sequence and do not persist every touch.
-
-Historical LRU order is therefore approximate across restart, but recovery safety and deterministic cold-start behavior are guaranteed.
+After READY, commit/touch use an in-memory monotonic recency sequence. Historical LRU order is approximate across restart, but safety and cold-start determinism are guaranteed.
 
 ## 19. Startup over-limit shrink
 
@@ -462,41 +487,55 @@ After scan, if:
 accounted_bytes > max_bytes
 ```
 
-construction must synchronously evict cold-start LRU victims until usage is bounded.
+construction synchronously evicts cold-start LRU victims until bounded.
 
-A historical entry larger than the new `max_bytes` is simply a required startup victim; `max_bytes < entry_size` is not itself a configuration error.
+A historical entry larger than the new max is simply a required startup victim.
 
-Startup behavior is stricter than runtime admission:
+Startup is stricter than runtime admission:
 
 - success/`ENOENT`: reconcile and continue
-- other victim unlink failure while over limit: fail construction immediately
+- other unlink failure while over limit: fail construction immediately
 
-A tier must never announce READY while recovered usage exceeds the configured hard ceiling.
+A tier never announces READY while recovered usage exceeds the configured hard ceiling.
 
-## 20. External mutation contract
+## 20. Logical quota versus physical free space
 
-The ownership lock coordinates participating bounded managers; it cannot prevent arbitrary external processes from manually modifying the cache directory.
+`max_bytes` remains independent of current filesystem free space.
+
+Startup may inspect/report free space for diagnostics but must not auto-resize the configured quota.
+
+If physical `ENOSPC`/`EDQUOT` occurs below logical max:
+
+- clean temp if possible
+- abort reservation
+- preserve existing committed accounting
+- report real I/O failure
+- inference continues through existing cache-failure fallback
+
+## 21. External mutation contract
+
+The ownership lock coordinates participating bounded managers; it cannot prevent arbitrary external processes from modifying the cache directory.
 
 Runtime guarantees cover manager-controlled mutations. Clear external deletion may be reconciled conservatively when observed.
 
-Arbitrary external writes into the owned namespace are a contract violation; #31 does not add a filesystem watcher or continuous full-directory scanner. The next restart scan will detect unknown pollution and fail fast.
+Arbitrary external writes into the owned namespace violate the contract; #31 does not add a filesystem watcher or continuous full scan. Restart recovery detects unknown pollution and fails fast.
 
-## 21. Shutdown
+## 22. Shutdown
 
-Shutdown order should ensure:
+Shutdown should establish:
 
 ```text
 stop accepting new work
--> finish/cancel queue according to thread-pool contract
--> active worker reservations all commit or abort
+-> finish/cancel queue according to pool contract
+-> every active worker reservation commits or aborts
 -> reserved_bytes == 0
 -> close capacity manager
 -> release ownership lock fd
 ```
 
-A nonzero reservation count after active workers have terminated is a correctness bug, not something to silently repair.
+A nonzero reservation count after active workers terminate is a correctness bug, not something to silently repair.
 
-## 22. Metrics and observability
+## 23. Metrics and observability
 
 Minimum low-cardinality metrics:
 
@@ -508,7 +547,7 @@ Minimum low-cardinality metrics:
 - `vllm:kv_offload_fs_capacity_skips{tier=...,reason=...}` counter
 - `vllm:kv_offload_fs_eviction_failures{tier=...}` counter
 
-Capacity-skip reason labels must be a bounded enum, such as `oversized` and `no_evictable_capacity`.
+Capacity skip reasons are bounded enums, e.g. `oversized` and `no_evictable_capacity`.
 
 Never label by root path, key/hash, request ID, or temp filename.
 
@@ -516,22 +555,24 @@ Never label by root path, key/hash, request ID, or temp filename.
 
 Existing stats aggregation uses the latest gauge value for an identical metric+label tuple, so multiple unlabeled FS tiers would overwrite each other.
 
-Every FS metric therefore carries a deterministic low-cardinality `tier` identity derived from secondary-tier configuration index, e.g. `fs:0`, `fs:1`.
+Every FS metric therefore carries deterministic low-cardinality tier identity derived from secondary-tier configuration index, e.g. `fs:0`, `fs:1`.
 
-Do not use `root_dir` as a label and do not overload `cost_model_tier_key` for observability identity.
+Do not use `root_dir` and do not overload `cost_model_tier_key` for this identity.
 
-A single capacity stats snapshot should read capacity/accounted/reserved/counters under one short `metadata_lock` critical section to avoid internally inconsistent snapshots.
+Implementation may add minimal generic tier instance identity plumbing after construction; capacity algorithm/state does not depend on the label value.
+
+A capacity stats snapshot reads capacity/accounted/reserved/counters under one short `metadata_lock` critical section.
 
 ### Logs
 
 - normal LRU eviction and existing-key skip: no per-block INFO noise
-- capacity pressure: metrics first; warnings should be rate-limited/aggregated if needed
+- capacity pressure: metrics first; warnings rate-limited/aggregated if needed
 - real filesystem failures: clear diagnostics
-- startup failures: include namespace, configured max, recovered usage, and failure category
+- startup failures: include namespace, configured max, recovered usage, failure category
 
 High-cardinality details belong in logs, not metric labels.
 
-## 23. Code decomposition
+## 24. Code decomposition
 
 ### New `vllm/v1/kv_offload/tiering/fs/capacity.py`
 
@@ -539,7 +580,7 @@ Owns:
 
 - `EntryRecord`
 - `Reservation`
-- entry state machine
+- committed-entry and pending-writer state
 - accounted/reserved bytes
 - LRU/recency
 - read pin/unpin
@@ -548,25 +589,25 @@ Owns:
 - ownership lock
 - capacity counters and consistent snapshots
 
-This keeps the hard-capacity algorithm directly unit-testable without requiring real KV memory I/O.
+The hard-capacity state machine should be directly unit-testable without real KV memory I/O.
 
 ### `fs/manager.py`
 
-Remains the tier orchestration layer:
+Remains tier orchestration:
 
-- validate and accept `max_bytes`
+- validate/accept `max_bytes`
 - build `FileMapper`
-- initialize capacity manager before accepting work
-- bounded lookup
+- initialize capacity manager before normal work
+- bounded async lookup integration
 - `touch()`
 - worker-side store/load wrappers
 - per-key store outcomes
 - job/event aggregation
-- `get_stats()` integration
+- stats integration
 
 ### `fs/io.py`
 
-Raw filesystem primitives only. Load helpers must stop owning final-file deletion/accounting semantics.
+Raw filesystem primitives only. Load helpers stop owning final-file deletion/accounting semantics.
 
 ### `file_mapper.py`
 
@@ -574,11 +615,11 @@ At most add a small explicit accessor for the data namespace root. Capacity poli
 
 ### Generic tier plumbing
 
-If required for per-tier metric identity, add only minimal deterministic secondary-tier instance identity plumbing based on configured index.
+If required for metrics, add only minimal deterministic secondary-tier instance identity based on configured index.
 
-## 24. TDD acceptance matrix
+## 25. TDD acceptance matrix
 
-Implementation must follow failing-test-first development. Minimum coverage:
+Implementation follows failing-test-first development. Minimum coverage:
 
 1. missing/zero/negative/wrong-type `max_bytes` fails
 2. positive `max_bytes < block_size` is valid
@@ -588,41 +629,43 @@ Implementation must follow failing-test-first development. Minimum coverage:
 6. commit converts reserved to committed
 7. failure abort releases reservation and cleans temp
 8. same/larger/smaller replacement accounting
-9. replacement reserves full new size
+9. replacement reserves full new size while old remains accounted
 10. oversized entry skips without eviction/temp/reservation
 11. concurrent writers cannot exceed the invariant
 12. same-key concurrent store produces only one real writer
 13. deterministic LRU victim order
 14. `touch()` updates recency
 15. active reader cannot be evicted
-16. eviction unlink success updates accounting
-17. eviction `ENOENT` reconciles safely
-18. other unlink failure does not free bytes
-19. write/replace/ENOSPC-style failure rolls back safely
-20. load corruption enters INVALID and remains accounted until deletion
-21. capacity-skipped key never emits false stored event
-22. mixed committed + normal-skip job emits only committed subset
-23. real partial I/O failure preserves current no-stored-event contract
-24. restart scan rebuilds accounting
-25. recognized temp cleanup succeeds/fails correctly
-26. corrupt recognized final cleanup succeeds/fails correctly
-27. unknown artifact fails without deletion
-28. smaller restart max synchronously evicts to bound
-29. oversized historical entry is evicted during recovery
-30. second bounded namespace owner fails fast
-31. ownership releases on shutdown/process exit semantics
-32. multiple FS tier metrics do not overwrite gauges
-33. shutdown ends with zero active reservations
-34. capacity rejection preserves cascade completion/primary-pin lifecycle
-35. scheduler-facing submission remains lightweight/non-blocking
+16. lookup-HIT-to-submit-load race: failed pin reports unsuccessful promotion without I/O
+17. eviction unlink success updates accounting
+18. eviction `ENOENT` reconciles safely
+19. other unlink failure does not free bytes
+20. write/replace/ENOSPC-style failure rolls back safely
+21. load corruption enters INVALID and remains accounted until deletion
+22. capacity-skipped key never emits false stored event
+23. mixed committed + normal-skip job emits only committed subset
+24. real partial I/O failure preserves current no-stored-event contract
+25. restart scan rebuilds accounting
+26. recognized temp cleanup succeeds/fails correctly
+27. corrupt recognized final cleanup succeeds/fails correctly
+28. unknown artifact fails without deletion
+29. smaller restart max synchronously evicts to bound
+30. oversized historical entry is evicted during recovery
+31. second bounded namespace owner fails fast
+32. ownership releases on shutdown/process exit semantics
+33. multiple FS tier metrics do not overwrite gauges
+34. shutdown ends with zero active reservations
+35. capacity rejection preserves cascade completion/primary-pin lifecycle
+36. scheduler-facing submission remains lightweight/non-blocking
+37. bounded lookup uses authoritative in-memory membership while preserving async/deferred interface behavior
 
-## 25. Real-filesystem validation
+## 26. Real-filesystem validation
 
 Focused unit tests are necessary but not sufficient. Run a real filesystem-backed smoke with a deliberately small quota.
 
-The smoke must exercise real final and temp files, including a controlled pause after the temp payload is fully written and before `os.replace()` so the peak state can be inspected while temp bytes exist.
+Exercise real final/temp files, including a controlled pause after temp payload completion and before `os.replace()` so the peak state is inspectable while temp bytes exist.
 
-Required smoke sequence:
+Required sequence:
 
 ```text
 fill to capacity
@@ -649,13 +692,13 @@ Record at least:
 - restart recovered usage
 - startup shrink result
 
-`du` may be captured as auxiliary evidence, but filesystem allocation rounding, inode metadata, journals, overlay backing, or unrelated disk consumers are not part of the exact logical payload-byte invariant.
+`du` may be auxiliary evidence, but allocation rounding, inode metadata, journals, overlay backing, and unrelated disk consumers are not part of the exact logical payload-byte invariant.
 
-Do not intentionally fill the Pod disk merely to create ENOSPC; test ENOSPC rollback with controlled fault injection.
+Do not intentionally fill the Pod disk to create ENOSPC; use controlled fault injection for rollback testing.
 
-## 26. Final validation evidence and PR gate
+## 27. Final validation evidence and PR gate
 
-The final Issue #31 evidence should record:
+Final Issue #31 evidence records:
 
 - base/head SHAs
 - exact configuration
@@ -675,32 +718,41 @@ If the environment is container-local/overlay-backed, call it filesystem evidenc
 
 The implementation PR is Draft by default. Green CI is necessary but not merge authorization. Merge occurs only after explicit user authorization, and the final implementation PR should close Issue #31.
 
-## 27. Safety checklist mapping
+## 28. Safety checklist mapping
 
-This design explicitly resolves the Issue #31 safety checklist:
+This design resolves the required safety questions:
 
 1. authoritative accounting source: startup scan, then in-memory capacity manager
-2. committed vs reserved: defined in Section 4
-3. temp files count: yes, through full-size reservations
+2. committed vs reserved: Section 4
+3. temp files count: full-size reservation before write
 4. reservation lifecycle: Section 6
 5. atomic concurrent reservation: admission serialization + metadata lock
-6. capacity locks during real I/O: no payload read/write under capacity locks
+6. capacity locks during real I/O: no payload I/O under capacity locks
 7. victim selection/reservation coordination: one admission lock, atomic victim claim
-8. overwrite delta: full-new-size reservation; post-replace old/new accounting swap
+8. overwrite delta accounting: old remains accounted; full-new-size reservation; atomic old/new swap after replace
 9. failed/cancelled rollback: idempotent abort; worker-side reservation
-10. oversized entry: clean pre-I/O skip
-11. restart usage rebuild: namespace scan
+10. oversized single entry: pre-I/O capacity skip
+11. restart usage rebuild: owned namespace scan
 12. restart over-limit: synchronous deterministic shrink
 13. orphan/temp handling: recognized cleanup; unknown fail-fast
 14. LRU recovery: `mtime_ns` + path deterministic cold start
-15. lookup/read vs eviction: authoritative state + read pins
+15. lookup/read vs eviction: in-memory membership, submit-load revalidation, read pins
 16. eviction unlink failure: release bytes only after confirmed absence
 17. physical ENOSPC vs logical max: distinct failure classes
-18. metric integration: tier-local low-cardinality stats through existing hooks
+18. metric integration: tier-local low-cardinality stats with deterministic tier identity
 19. disabled/default behavior: explicit FS requires positive `max_bytes`; no FS tier remains unchanged
-20. metadata versioning: unnecessary because scan-based recovery is sufficient
+20. metadata versioning: scan-based recovery is sufficient; no new persistent schema
 
-## 28. Implementation process gate
+## 29. Self-review findings incorporated
+
+The design self-review made two normative clarifications before implementation planning:
+
+1. `WRITING` is represented as a separate pending reservation/writer record, not as a committed-entry state. This is required so low-level replacement can keep the old final accounted while the new temp is in flight.
+2. A lookup HIT is not sufficient to protect a later promotion read. `submit_load()` must revalidate/pin; a failed pin reports an unsuccessful promotion without filesystem I/O so existing tiering completion logic can release the reserved primary slot with `success=False`.
+
+No production code was changed during this design phase.
+
+## 30. Implementation process gate
 
 Approved workflow:
 
@@ -719,4 +771,4 @@ approved design
 -> explicit user merge authorization
 ```
 
-No production implementation begins before the design spec has passed review and the implementation plan has been written.
+No production implementation begins before the design spec has passed user review and the implementation plan has been written.
