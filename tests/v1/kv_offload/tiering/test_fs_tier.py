@@ -48,9 +48,10 @@ from vllm.v1.kv_offload.tiering.fs.thread_pool import DualQueueThreadPool
 
 _BLOCK_ELEMENTS = 128 * mmap.PAGESIZE  # 2MB per block for pagesize 4096.
 _DTYPE: torch.dtype = torch.float32
-_DEFAULT_MAX_BYTES = (
-    8 * _BLOCK_ELEMENTS * torch.tensor([], dtype=_DTYPE).element_size()
+_BLOCK_BYTES = (
+    _BLOCK_ELEMENTS * torch.tensor([], dtype=_DTYPE).element_size()
 )
+_DEFAULT_MAX_BYTES = 8 * _BLOCK_BYTES
 _CTX = ReqContext(req_id="test")
 
 
@@ -197,6 +198,30 @@ def fs_tier_with_events(tmp_path):
     )
     yield tier
     tier.shutdown()
+
+
+def _new_bounded_fs_tier(
+    tmp_path,
+    *,
+    max_bytes: int,
+    enable_events: bool = False,
+) -> tuple[FileSystemTierManager, torch.Tensor]:
+    tensor = _page_aligned_zero_tensor(4, _BLOCK_ELEMENTS)
+    tier = FileSystemTierManager(
+        offloading_spec=_make_offloading_spec(
+            enable_kv_cache_events=enable_events
+        ),
+        primary_kv_view=memoryview(tensor.numpy()),
+        tier_type="fs",
+        root_dir=str(tmp_path),
+        max_bytes=max_bytes,
+        # Keep store execution deterministic for capacity-pressure tests.
+        n_read_threads=0,
+        n_write_threads=1,
+        enable_kv_events=enable_events,
+        locality="LOCAL" if enable_events else None,
+    )
+    return tier, tensor
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +525,190 @@ def test_batch_lookup_dispatch(fs_tier, monkeypatch, use_c_ext):
 
     results = lookup_and_wait(tier, [key(1), key(2)])
     assert results == [LookupResult.HIT, LookupResult.MISS]
+
+
+def test_store_evicts_lru_when_capacity_is_one_block(tmp_path):
+    tier, _ = _new_bounded_fs_tier(
+        tmp_path,
+        max_bytes=_BLOCK_BYTES,
+    )
+    try:
+        first_key = key(101)
+        second_key = key(102)
+        first_path = tier.file_mapper.get_file_name(first_key)
+        second_path = tier.file_mapper.get_file_name(second_key)
+
+        tier.submit_store(make_job(1, [first_key], [0]))
+        first_result = drain(tier)
+        assert len(first_result) == 1
+        assert first_result[0].success
+        assert os.path.exists(first_path)
+
+        tier.submit_store(make_job(2, [second_key], [1]))
+        second_result = drain(tier)
+        assert len(second_result) == 1
+        assert second_result[0].success
+
+        assert not os.path.exists(first_path)
+        assert os.path.exists(second_path)
+        assert tier._capacity.snapshot().accounted_bytes == _BLOCK_BYTES
+        assert tier._capacity.snapshot().reserved_bytes == 0
+    finally:
+        tier.shutdown()
+
+
+def test_store_larger_than_capacity_is_successful_skip(tmp_path):
+    tier, _ = _new_bounded_fs_tier(
+        tmp_path,
+        max_bytes=_BLOCK_BYTES - 1,
+    )
+    try:
+        skipped_key = key(103)
+        skipped_path = tier.file_mapper.get_file_name(skipped_key)
+
+        tier.submit_store(make_job(1, [skipped_key], [0]))
+        results = drain(tier)
+
+        assert len(results) == 1
+        assert results[0].success
+        assert not os.path.exists(skipped_path)
+        assert tier._capacity.snapshot().accounted_bytes == 0
+        assert tier._capacity.snapshot().reserved_bytes == 0
+    finally:
+        tier.shutdown()
+
+
+def test_mixed_commit_and_capacity_skip_event_contains_only_commit(
+    tmp_path,
+    monkeypatch,
+):
+    import vllm.v1.kv_offload.tiering.fs.capacity as cap_mod
+
+    tier, _ = _new_bounded_fs_tier(
+        tmp_path,
+        max_bytes=_BLOCK_BYTES,
+        enable_events=True,
+    )
+    try:
+        committed_key = key(104)
+        skipped_key = key(105)
+        committed_path = tier.file_mapper.get_file_name(committed_key)
+
+        real_unlink = os.unlink
+
+        def fail_committed_eviction(path):
+            if os.path.abspath(path) == os.path.abspath(committed_path):
+                raise PermissionError("injected capacity eviction failure")
+            return real_unlink(path)
+
+        monkeypatch.setattr(cap_mod.os, "unlink", fail_committed_eviction)
+
+        tier.submit_store(
+            make_job(
+                1,
+                [committed_key, skipped_key],
+                [0, 1],
+            )
+        )
+        results = drain(tier)
+
+        assert len(results) == 1
+        assert results[0].success
+
+        events = list(tier.take_events())
+        assert len(events) == 1
+        assert events[0].keys == [committed_key]
+
+        assert os.path.exists(committed_path)
+        assert not os.path.exists(
+            tier.file_mapper.get_file_name(skipped_key)
+        )
+        assert tier._capacity.snapshot().accounted_bytes == _BLOCK_BYTES
+        assert tier._capacity.snapshot().reserved_bytes == 0
+    finally:
+        tier.shutdown()
+
+
+def test_all_capacity_skips_emit_no_stored_event(tmp_path):
+    tier, _ = _new_bounded_fs_tier(
+        tmp_path,
+        max_bytes=_BLOCK_BYTES - 1,
+        enable_events=True,
+    )
+    try:
+        keys = [key(106), key(107)]
+
+        tier.submit_store(make_job(1, keys, [0, 1]))
+        results = drain(tier)
+
+        assert len(results) == 1
+        assert results[0].success
+        assert list(tier.take_events()) == []
+        assert tier._capacity.snapshot().accounted_bytes == 0
+        assert tier._capacity.snapshot().reserved_bytes == 0
+    finally:
+        tier.shutdown()
+
+
+def test_already_present_store_emits_no_new_stored_event(tmp_path):
+    tier, _ = _new_bounded_fs_tier(
+        tmp_path,
+        max_bytes=_BLOCK_BYTES,
+        enable_events=True,
+    )
+    try:
+        stored_key = key(108)
+
+        tier.submit_store(make_job(1, [stored_key], [0]))
+        first = drain(tier)
+        assert len(first) == 1
+        assert first[0].success
+        first_events = list(tier.take_events())
+        assert len(first_events) == 1
+        assert first_events[0].keys == [stored_key]
+
+        tier.submit_store(make_job(2, [stored_key], [0]))
+        second = drain(tier)
+        assert len(second) == 1
+        assert second[0].success
+        assert list(tier.take_events()) == []
+
+        snapshot = tier._capacity.snapshot()
+        assert snapshot.accounted_bytes == _BLOCK_BYTES
+        assert snapshot.reserved_bytes == 0
+    finally:
+        tier.shutdown()
+
+
+def test_real_store_io_failure_fails_job_and_emits_no_event(
+    tmp_path,
+    monkeypatch,
+):
+    import vllm.v1.kv_offload.tiering.fs.manager as mgr_mod
+
+    tier, _ = _new_bounded_fs_tier(
+        tmp_path,
+        max_bytes=_BLOCK_BYTES,
+        enable_events=True,
+    )
+    try:
+        def fail_store(*args, **kwargs):
+            raise OSError("injected real store failure")
+
+        monkeypatch.setattr(mgr_mod, "store_block", fail_store)
+
+        tier.submit_store(make_job(1, [key(109)], [0]))
+        results = drain(tier)
+
+        assert len(results) == 1
+        assert not results[0].success
+        assert list(tier.take_events()) == []
+
+        snapshot = tier._capacity.snapshot()
+        assert snapshot.accounted_bytes == 0
+        assert snapshot.reserved_bytes == 0
+    finally:
+        tier.shutdown()
 
 
 # ---------------------------------------------------------------------------

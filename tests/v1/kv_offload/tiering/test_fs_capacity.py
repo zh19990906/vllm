@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from vllm.v1.kv_offload.tiering.fs import io as fs_io
+from vllm.v1.kv_offload.tiering.fs import manager as fs_manager
 from vllm.v1.kv_offload.tiering.fs.capacity import (
     AdmissionStatus,
     FileSystemCapacityManager,
@@ -639,6 +641,173 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             self.assertTrue(
                 all(total <= 100 for total in observed_totals)
             )
+
+
+    def test_raw_load_failure_does_not_delete_final(self) -> None:
+        final_path = managed_path(self.root)
+        final_path.write_bytes(b"x" * 4)
+        target = bytearray(8)
+
+        with mock.patch.object(
+            fs_io.os,
+            "open",
+            side_effect=FileNotFoundError("injected read failure"),
+        ):
+            with mock.patch.object(fs_io.os, "remove") as remove:
+                with self.assertRaises(FileNotFoundError):
+                    fs_io.load_block(
+                        str(final_path),
+                        memoryview(target),
+                        0,
+                        4,
+                    )
+
+        remove.assert_not_called()
+        self.assertTrue(final_path.exists())
+
+    def test_raw_store_uses_caller_supplied_temp_path(self) -> None:
+        final_path = managed_path(self.root)
+        temp_path = Path(f"{final_path}_123.tmp")
+        payload = bytearray(b"abcdefgh")
+
+        opened_paths: list[str] = []
+
+        def fake_open(path: str, flags: int, mode: int = 0o777) -> int:
+            opened_paths.append(path)
+            return 17
+
+        with mock.patch.object(
+            fs_io.os,
+            "open",
+            side_effect=fake_open,
+        ):
+            with mock.patch.object(
+                fs_io.os,
+                "write",
+                return_value=4,
+            ):
+                with mock.patch.object(fs_io.os, "close"):
+                    with mock.patch.object(fs_io.os, "replace") as replace:
+                        with mock.patch.object(
+                            fs_io,
+                            "_ensure_dirs",
+                        ) as ensure_dirs:
+                            with mock.patch.object(
+                                fs_io.os.path,
+                                "exists",
+                                side_effect=AssertionError(
+                                    "raw store must not check "
+                                    "destination existence"
+                                ),
+                            ):
+                                fs_io.store_block(
+                                    str(final_path),
+                                    str(temp_path),
+                                    memoryview(payload),
+                                    0,
+                                    4,
+                                )
+
+        ensure_dirs.assert_called_once_with(str(final_path))
+
+        self.assertEqual(opened_paths, [str(temp_path)])
+        replace.assert_called_once_with(
+            str(temp_path),
+            str(final_path),
+        )
+
+    def test_raw_store_failure_leaves_temp_cleanup_to_manager(self) -> None:
+        final_path = managed_path(self.root)
+        temp_path = Path(f"{final_path}_456.tmp")
+        payload = bytearray(b"abcdefgh")
+
+        with mock.patch.object(fs_io.os, "open", return_value=17):
+            with mock.patch.object(
+                fs_io.os,
+                "write",
+                side_effect=OSError("injected write failure"),
+            ):
+                with mock.patch.object(fs_io.os, "close"):
+                    with mock.patch.object(fs_io.os, "remove") as remove:
+                        with self.assertRaisesRegex(
+                            OSError,
+                            "injected write failure",
+                        ):
+                            fs_io.store_block(
+                                str(final_path),
+                                str(temp_path),
+                                memoryview(payload),
+                                0,
+                                4,
+                            )
+
+        # Raw I/O must not make reservation/accounting cleanup decisions.
+        remove.assert_not_called()
+
+    def test_make_temp_path_matches_restart_recognized_shape(self) -> None:
+        final_path = managed_path(self.root)
+
+        temp_path = fs_io.make_temp_path(str(final_path))
+
+        self.assertTrue(temp_path.startswith(f"{final_path}_"))
+        self.assertTrue(temp_path.endswith(".tmp"))
+        suffix = temp_path[len(str(final_path)) + 1 : -4]
+        self.assertTrue(suffix.isdigit())
+
+    def test_store_cleanup_failure_retains_orphan_reservation(
+        self,
+    ) -> None:
+        manager = object.__new__(
+            fs_manager.FileSystemTierManager
+        )
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(
+            bytearray(b"abcdefgh")
+        )
+        manager._capacity = mock.MagicMock()
+
+        reservation = object()
+        admission = mock.MagicMock()
+        admission.status = AdmissionStatus.RESERVED
+        admission.reservation = reservation
+        manager._capacity.admit_write.return_value = admission
+
+        final_path = str(managed_path(self.root))
+        temp_path = f"{final_path}_999.tmp"
+
+        with mock.patch.object(
+            fs_manager,
+            "make_temp_path",
+            return_value=temp_path,
+        ):
+            with mock.patch.object(
+                fs_manager,
+                "store_block",
+                side_effect=OSError("injected store failure"),
+            ):
+                with mock.patch.object(
+                    fs_manager.os,
+                    "unlink",
+                    side_effect=PermissionError(
+                        "injected temp cleanup failure"
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        OSError,
+                        "injected store failure",
+                    ):
+                        manager._store_one(
+                            final_path,
+                            0,
+                            None,
+                            0,
+                        )
+
+        manager._capacity.retain_orphan_temp.assert_called_once_with(
+            reservation,
+            temp_path,
+        )
+        manager._capacity.abort_write.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ File naming:  <base_path>_r<rank>/<hhh>/<hh>_g<group_idx>/<hash_hex>.bin
 import functools
 import json
 import os
+import threading
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar
 
@@ -49,13 +50,39 @@ from vllm.v1.kv_offload.tiering.base import (
     ScheduleEndContext,
     SecondaryTierManager,
 )
-from vllm.v1.kv_offload.tiering.fs.io import load_block, store_block
+from vllm.v1.kv_offload.tiering.fs.capacity import (
+    AdmissionStatus,
+    FileSystemCapacityManager,
+)
+from vllm.v1.kv_offload.tiering.fs.io import (
+    load_block,
+    make_temp_path,
+    store_block,
+)
 from vllm.v1.kv_offload.tiering.fs.thread_pool import DualQueueThreadPool
 
 if TYPE_CHECKING:
     from vllm.v1.kv_offload.base import OffloadingSpec
 
 logger = init_logger(__name__)
+
+
+class _StoreJobRecord:
+    """Thread-safe per-key commit bookkeeping for one store job."""
+
+    def __init__(self, keys: list[OffloadKey]) -> None:
+        self.keys = keys
+        self._committed_indices: set[int] = set()
+        self._lock = threading.Lock()
+
+    def record_commit(self, index: int) -> None:
+        with self._lock:
+            self._committed_indices.add(index)
+
+    def committed_keys(self) -> list[OffloadKey]:
+        with self._lock:
+            indices = sorted(self._committed_indices)
+        return [self.keys[index] for index in indices]
 
 
 class FsAsyncLookupManager(AsyncLookupManager):
@@ -153,8 +180,9 @@ class FileSystemTierManager(SecondaryTierManager):
                     "emit events.",
                     tier_type,
                 )
-        # Keys of in-flight store jobs, tracked only when events are enabled.
-        self._store_job_keys: dict[JobId, list[OffloadKey]] = {}
+        # Per-key commit state for in-flight store jobs. Kept only when
+        # events are enabled; failed jobs never publish partial commits.
+        self._store_job_keys: dict[JobId, _StoreJobRecord] = {}
 
         # Extract block size from primary view
         assert primary_kv_view.strides is not None, (
@@ -179,6 +207,12 @@ class FileSystemTierManager(SecondaryTierManager):
                     self.file_mapper.get_run_config(), f, indent=2, sort_keys=True
                 )
 
+        self._capacity = FileSystemCapacityManager(
+            namespace_root=self.file_mapper.get_data_dir_path(),
+            max_bytes=self.max_bytes,
+            expected_file_size=self._block_size,
+        )
+
         self._pool = DualQueueThreadPool(
             n_read_threads,
             n_write_threads,
@@ -200,19 +234,76 @@ class FileSystemTierManager(SecondaryTierManager):
 
     @override
     def submit_store(self, job_metadata: JobMetadata) -> None:
+        record: _StoreJobRecord | None = None
         if self.events is not None:
-            self._store_job_keys[job_metadata.job_id] = list(job_metadata.keys)
+            record = _StoreJobRecord(list(job_metadata.keys))
+            self._store_job_keys[job_metadata.job_id] = record
+
         tasks = (
             functools.partial(
-                store_block,
+                self._store_one,
                 self.file_mapper.get_file_name(key),
-                self._primary_kv_view,
                 int(bid) * self._block_size,
+                record,
+                index,
+            )
+            for index, (key, bid) in enumerate(
+                zip(job_metadata.keys, job_metadata.block_ids)
+            )
+        )
+        self._pool.enqueue_store(
+            job_metadata.job_id,
+            len(job_metadata.keys),
+            tasks,
+        )
+
+    def _store_one(
+        self,
+        final_path: str,
+        offset: int,
+        record: _StoreJobRecord | None,
+        key_index: int,
+    ) -> None:
+        admission = self._capacity.admit_write(
+            final_path,
+            self._block_size,
+        )
+        if admission.status is not AdmissionStatus.RESERVED:
+            # Already-present, duplicate-inflight, oversized, and capacity
+            # rejection are normal cache-write skips.
+            return
+
+        reservation = admission.reservation
+        assert reservation is not None
+        tmp_path = make_temp_path(final_path)
+
+        try:
+            store_block(
+                final_path,
+                tmp_path,
+                self._primary_kv_view,
+                offset,
                 self._block_size,
             )
-            for key, bid in zip(job_metadata.keys, job_metadata.block_ids)
-        )
-        self._pool.enqueue_store(job_metadata.job_id, len(job_metadata.keys), tasks)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                self._capacity.abort_write(reservation)
+            except OSError:
+                # Physical temp presence cannot be disproven, so retain the
+                # full reservation conservatively.
+                self._capacity.retain_orphan_temp(
+                    reservation,
+                    tmp_path,
+                )
+            else:
+                self._capacity.abort_write(reservation)
+            raise
+        else:
+            self._capacity.commit_write(reservation)
+            if record is not None:
+                record.record_commit(key_index)
 
     @override
     def submit_load(self, job_metadata: JobMetadata) -> None:
@@ -236,16 +327,18 @@ class FileSystemTierManager(SecondaryTierManager):
         results = []
         for job_id, success in self._pool.get_finished():
             if self.events is not None:
-                keys = self._store_job_keys.pop(job_id, None)
-                if success and keys:
-                    self.events.append(
-                        OffloadingEvent(
-                            keys=keys,
-                            medium=self.medium,
-                            removed=False,
-                            locality=self.locality,
+                record = self._store_job_keys.pop(job_id, None)
+                if success and record is not None:
+                    committed_keys = record.committed_keys()
+                    if committed_keys:
+                        self.events.append(
+                            OffloadingEvent(
+                                keys=committed_keys,
+                                medium=self.medium,
+                                removed=False,
+                                locality=self.locality,
+                            )
                         )
-                    )
             results.append(JobResult(job_id=job_id, success=success))
         return results
 
@@ -276,4 +369,7 @@ class FileSystemTierManager(SecondaryTierManager):
         clearing pending tasks and waiting for active threads to complete.
         """
         self._lookup_manager.shutdown()
-        self._pool.shutdown(wait=True)
+        try:
+            self._pool.shutdown(wait=True)
+        finally:
+            self._capacity.close()
