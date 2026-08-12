@@ -1,6 +1,6 @@
 # Current Engineering State
 
-Observed: **2026-08-11**.
+Observed: **2026-08-12**.
 
 This file is intentionally mutable. Verify GitHub issue, PR, branch, and commit metadata
 before acting if this file is older than the current session.
@@ -59,21 +59,34 @@ Parent roadmap: **Issue #9**.
 
 ### Current P0 core work
 
-**Issue #15 is the current primary research issue.**
+**Issue #15 remains the current primary research issue until its feature PR and
+authoritative CI complete.**
 
-Issue #15 validates whether the calibrated shadow model generalizes beyond the single
-model, single-machine, concurrency=1 baseline used for Issues #13 and #14. The result must
-show prediction error and decision accuracy under at least two meaningfully different
-model, hardware, or load conditions, identify which parameters transfer across
-environments, and identify which parameters require online calibration.
+The local Issue #15 evidence matrix is now complete. The frozen Issue #14 profile fails
+unchanged under both selected new conditions:
+
+- 7B concurrency 2: 7/8 high-confidence decisions, principal P95 macro-MAPE 44.454%;
+- 14B concurrency 1: 6/7 high-confidence decisions, principal P95 macro-MAPE 53.322%.
+
+C-load is explained by per-curve environment/load scale, while the 14B filesystem curve
+retains 35.600% residual MAPE after one-scalar correction and is classified as a
+curve-shape/missing-feature failure. No active restore/recompute behavior is enabled.
+
+See:
+[`validation/2026-08-11-issue15-generalization-validation.md`](validation/2026-08-11-issue15-generalization-validation.md).
 
 ### Next P0 stage
 
-**Issue #16 remains open and follows Issue #15.**
+**Issue #16 remains next, but active enforcement must stay gated by the bounded
+Issue #15 eligibility map.**
 
-Issue #16 promotes shadow-only restore/recompute advice into a real runtime choice with
-explicit enablement, observability, fallback, and safe behavior outside validated regions.
-Do not enable active behavior merely because the Issue #14 baseline gate passed.
+The handoff distinguishes measured C0 regions that may enter active-decision design,
+regions that first require validated online calibration, and regions that are explicitly
+ineligible because of low confidence, invalid restore provenance, or a missing model/path
+feature.
+
+See:
+[`handoffs/2026-08-11-issue16-active-decision-handoff.md`](handoffs/2026-08-11-issue16-active-decision-handoff.md).
 
 ### Parallel work
 
@@ -143,33 +156,31 @@ The consolidated progress record is:
 
 ## Current objective: design Issue #15 generalization validation
 
-The next design/implementation cycle should stay narrow enough to produce interpretable
-new evidence rather than immediately launching a broad 1-8 GPU sweep.
+## Current objective: finalize Issue #15 generalization validation delivery
 
-Recommended sequence:
+The experimental matrix has reached its pre-registered stop condition. Remaining Issue #15
+work is repository delivery and authoritative CI, not more GPU measurement.
 
-1. Reuse the checked-in Issue #13 measurement schema and Issue #14 calibrated evaluator.
-2. Choose the smallest additional conditions that satisfy Issue #15's generalization goal,
-   with at least two meaningfully different model, hardware, or load conditions overall.
-3. Define acceptance metrics before running hardware experiments, including prediction
-   error and decision accuracy.
-4. Separate transferable profile parameters from environment-specific or online-calibrated
-   parameters.
-5. Record failure boundaries and missing model inputs instead of hiding them with
-   high-cardinality fitting.
-6. Save structured results and a concise validation report under
-   `docs/engineering/validation/`.
-7. Keep execution shadow-only until Issue #15 evidence justifies moving to Issue #16.
+Key local evidence:
+
+1. concurrency 2 was the first materially contended 7B load and stopped the C2/C4/C8 probe;
+2. both new conditions fail fixed-profile transfer;
+3. C-load drift is scale-like for all three principal curves;
+4. 14B recompute and CPU restore are scale-like;
+5. 14B filesystem restore is shape/missing-feature limited;
+6. the 14B filesystem p4096 partial restore remains explicitly invalid;
+7. Issue #16 receives a bounded eligibility map rather than a global enablement claim.
 
 ## Current continuation record
 
-Use this handoff for the next Issue #15 session:
+Use the final Issue #15 evidence and Issue #16 handoff:
 
-[`handoffs/2026-08-11-issue15-generalization-handoff.md`](handoffs/2026-08-11-issue15-generalization-handoff.md).
+[`validation/2026-08-11-issue15-generalization-validation.md`](validation/2026-08-11-issue15-generalization-validation.md)
 
-It records the completed #13/#14 inputs, the minimum discriminative experiment shape,
-metrics that must be fixed before expensive runs, and stop conditions that prevent an
-unnecessary broad sweep.
+[`handoffs/2026-08-11-issue16-active-decision-handoff.md`](handoffs/2026-08-11-issue16-active-decision-handoff.md)
+
+Issue #15 is not described as completed until its feature PR, authoritative GitHub CI, and
+close criteria are satisfied. Active restore/recompute enforcement remains Issue #16 work.
 
 ## Important interpretation rules
 

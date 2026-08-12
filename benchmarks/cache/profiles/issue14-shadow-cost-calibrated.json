@@ -1,0 +1,60 @@
+{
+  "cache_cost_model": {
+    "ewma_alpha": 0.2,
+    "mode": "shadow",
+    "profile": {
+      "recompute_ms": {
+        "1024": 81.258424,
+        "104": 19.659707,
+        "168": 22.185918,
+        "192": 25.081511,
+        "2016": 152.432876,
+        "232": 26.66279,
+        "4088": 309.14017,
+        "512": 44.813489
+      },
+      "tiers": {
+        "cpu_primary": {
+          "restore_ms": {
+            "1024": 24.686534,
+            "104": 21.219634,
+            "168": 21.829567,
+            "192": 22.212328,
+            "2016": 29.172611,
+            "232": 21.872038,
+            "4088": 35.213313,
+            "512": 23.056893
+          }
+        },
+        "filesystem": {
+          "promotion_ms": {
+            "1024": 81.458,
+            "2048": 171.505,
+            "256": 13.916,
+            "4096": 498.874,
+            "512": 35.23
+          },
+          "restore_ms": {
+            "1024": 101.798821,
+            "2016": 320.792677,
+            "232": 36.00682,
+            "4088": 648.234859,
+            "512": 59.158786
+          }
+        }
+      }
+    },
+    "sample_scale_max": 4.0,
+    "sample_scale_min": 0.25
+  },
+  "name": "issue14-shadow-cost-calibrated",
+  "provenance": {
+    "issue": 14,
+    "note": "Frozen Issue #14 shadow profile for Issue #15 holdout evaluation; not a production default.",
+    "percentile": "p95",
+    "profile_role": "frozen_holdout_seed",
+    "source_artifact": "docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json",
+    "source_field": "calibrated_profile"
+  },
+  "schema_version": 1
+}

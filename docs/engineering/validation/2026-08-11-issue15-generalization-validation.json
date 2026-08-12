@@ -1,0 +1,1481 @@
+{
+  "c_load_selection": {
+    "artifact": "/code/results/cache/issue15-structured/c-load-c2-sentinel.json",
+    "selection": {
+      "absolute_change_percent": {
+        "cpu_primary": 62.152588976765564,
+        "recompute": 91.98175025164801,
+        "secondary:filesystem": 70.69322786103992
+      },
+      "candidate_concurrency": 2,
+      "curves": {
+        "cpu_primary": {
+          "c1": 24.6572369011119,
+          "c2": 39.98234800528735
+        },
+        "recompute": {
+          "c1": 81.26772118266672,
+          "c2": 156.01919351611286
+        },
+        "secondary:filesystem": {
+          "c1": 107.4048621347174,
+          "c2": 183.33282605744895
+        }
+      },
+      "decision": "select_c2_stop",
+      "provenance_valid": true,
+      "qualification_rule": {
+        "largest_change_at_least_percent": 20.0,
+        "second_change_at_least_percent": 10.0
+      },
+      "qualifies": true,
+      "run_directories": {
+        "cpu": "/code/results/cache/20260811T091448Z-8e6ec8bb",
+        "filesystem": "/code/results/cache/20260811T091803Z-e9e7e3d1"
+      }
+    },
+    "sha256": "f59d9a938d057128d5d2697c8437be38efc860422d6f69ba4c416504e8dc51ed"
+  },
+  "candidate_required_features": [
+    {
+      "evidence": "C-load recompute/CPU/filesystem and C-model recompute/CPU all fall below 15% residual MAPE after one diagnostic scalar.",
+      "feature": "bounded online per-environment/per-load curve scale"
+    },
+    {
+      "evidence": "C-model filesystem residual MAPE remains 35.600% after scalar correction; external tokens alone do not explain the 14B curve.",
+      "feature": "secondary-path characteristic or model/KV-transfer feature beyond external-token count"
+    },
+    {
+      "evidence": "14B filesystem p4096 produced partial restore plus kv_offload_allocation_failure and must be rejected.",
+      "feature": "restore-capacity/allocation validity observation"
+    },
+    {
+      "evidence": "Filesystem external-token 104 is low-confidence and wrong in both new conditions.",
+      "feature": "confidence/fallback guard at short-token extrapolation"
+    }
+  ],
+  "conditions": {
+    "c-load": {
+      "accepted_samples": [
+        {
+          "external_kv_tokens_per_request": 104,
+          "external_kv_tokens_total": 832,
+          "latency_ms": {
+            "recompute": {
+              "p95": 35.59159429278225
+            },
+            "restore": {
+              "p95": 35.46389096882194
+            }
+          },
+          "requested_tokens": 128,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 47710208,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "4660f2d9952b845431952f15473c8ee13a955275bc4c59a6729245c73c6d8317",
+            "populate_sha256": "47c67724bb47b2835ccb1f5969f77aec3b5ddf450285d7ef6ba215dcd524e58d"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 104,
+          "external_kv_tokens_total": 832,
+          "latency_ms": {
+            "recompute": {
+              "p95": 35.59159429278225
+            },
+            "restore": {
+              "p95": 43.844814924523234
+            }
+          },
+          "requested_tokens": 128,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 47710208,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 0.112000477035,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "4660f2d9952b845431952f15473c8ee13a955275bc4c59a6729245c73c6d8317",
+            "populate_sha256": "47c67724bb47b2835ccb1f5969f77aec3b5ddf450285d7ef6ba215dcd524e58d"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 168,
+          "external_kv_tokens_total": 1344,
+          "latency_ms": {
+            "recompute": {
+              "p95": 39.13054675795138
+            },
+            "restore": {
+              "p95": 35.77165873721241
+            }
+          },
+          "requested_tokens": 192,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 77070336,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "a3afbc7ff19c1413d1fcd677af76ea48ac9284f23f828f072945869fe9f8de73",
+            "populate_sha256": "3c1c1806351faaa7633b07c37cc1ca207ec181b9a44ac997cd6b286827d33ebe"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 168,
+          "external_kv_tokens_total": 1344,
+          "latency_ms": {
+            "recompute": {
+              "p95": 39.13054675795138
+            },
+            "restore": {
+              "p95": 59.63269679341465
+            }
+          },
+          "requested_tokens": 192,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 77070336,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 0.211534789298,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "a3afbc7ff19c1413d1fcd677af76ea48ac9284f23f828f072945869fe9f8de73",
+            "populate_sha256": "3c1c1806351faaa7633b07c37cc1ca207ec181b9a44ac997cd6b286827d33ebe"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 232,
+          "external_kv_tokens_total": 1856,
+          "latency_ms": {
+            "recompute": {
+              "p95": 50.029184040613465
+            },
+            "restore": {
+              "p95": 36.302899941802025
+            }
+          },
+          "requested_tokens": 256,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 106430464,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "b01bce7fce62c740fd38f1fd589df61a7900995a3b05783f1536b1471413d8f6",
+            "populate_sha256": "d0d78d067bd85726ff1cd056ce8daf85381080127f731b8b028d46daa6faf38b"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 232,
+          "external_kv_tokens_total": 1856,
+          "latency_ms": {
+            "recompute": {
+              "p95": 50.029184040613465
+            },
+            "restore": {
+              "p95": 69.08446210436523
+            }
+          },
+          "requested_tokens": 256,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 106430464,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 0.264018277172,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "b01bce7fce62c740fd38f1fd589df61a7900995a3b05783f1536b1471413d8f6",
+            "populate_sha256": "d0d78d067bd85726ff1cd056ce8daf85381080127f731b8b028d46daa6faf38b"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 1024,
+          "external_kv_tokens_total": 8192,
+          "latency_ms": {
+            "recompute": {
+              "p95": 156.4591142348945
+            },
+            "restore": {
+              "p95": 39.868901018053286
+            }
+          },
+          "requested_tokens": 1024,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 469762048,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "3c57d4e7cbc26c94a0db07898a41577db9242163bd78589f79e3596b80075a7d",
+            "populate_sha256": "7b4f89db161d259cfcfc64022ef7e321a26e38a70ee33fec821dcdada989d656"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 1024,
+          "external_kv_tokens_total": 8192,
+          "latency_ms": {
+            "recompute": {
+              "p95": 156.4591142348945
+            },
+            "restore": {
+              "p95": 187.1375396149233
+            }
+          },
+          "requested_tokens": 1024,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 469762048,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 1.190692351665,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "3c57d4e7cbc26c94a0db07898a41577db9242163bd78589f79e3596b80075a7d",
+            "populate_sha256": "7b4f89db161d259cfcfc64022ef7e321a26e38a70ee33fec821dcdada989d656"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 4088,
+          "external_kv_tokens_total": 32704,
+          "latency_ms": {
+            "recompute": {
+              "p95": 606.2997298547998
+            },
+            "restore": {
+              "p95": 52.26179913152009
+            }
+          },
+          "requested_tokens": 4096,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 1875378176,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "8a07e392e53bc91f4a5c90b3e7adfda589fc414cb2ba48a7426c545923ce5cbd",
+            "populate_sha256": "6cf2e87d4dba067c899d54f22e607ec91a6fd1abf604ede04a1dbba23f501a19"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 4088,
+          "external_kv_tokens_total": 32704,
+          "latency_ms": {
+            "recompute": {
+              "p95": 606.2997298547998
+            },
+            "restore": {
+              "p95": 1401.2727956986053
+            }
+          },
+          "requested_tokens": 4096,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 1875378176,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 8.57167565776,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "8a07e392e53bc91f4a5c90b3e7adfda589fc414cb2ba48a7426c545923ce5cbd",
+            "populate_sha256": "6cf2e87d4dba067c899d54f22e607ec91a6fd1abf604ede04a1dbba23f501a19"
+          }
+        }
+      ],
+      "condition": {
+        "concurrency": 2,
+        "environment_artifact": "/code/results/cache/20260811T092310Z-e857dff2/environment.json",
+        "gpu_index": 0,
+        "gpu_uuid": "GPU-5516e45d-3e50-69ef-f0f2-8ecff465beea",
+        "id": "c-load",
+        "model": "/mnt/model/Qwen2.5-7B-Instruct",
+        "request_rate": "inf",
+        "requests_per_case": 8,
+        "run_directories": {
+          "cpu_primary": "/code/results/cache/20260811T092310Z-e857dff2",
+          "recompute": "/code/results/cache/20260811T092310Z-e857dff2",
+          "secondary:filesystem": "/code/results/cache/20260811T093324Z-c9b27cc0"
+        },
+        "served_model": "qwen2.5-7b",
+        "tensor_parallel_size": 1
+      },
+      "curve_classification": {
+        "cpu_restore": "environment_specific_scale_candidate",
+        "recompute": "environment_specific_scale_candidate",
+        "tiered_fs_restore": "environment_specific_scale_candidate"
+      },
+      "dataset_artifact": "/code/results/cache/issue15-structured/c-load-c2-formal-dataset.json",
+      "dataset_sha256": "a30e2a18025646f3e56428c507dae32010a93538d45005e8ae815fb587d88e27",
+      "diagnostic_artifact": "/code/results/cache/issue15-structured/c-load-c2-scale-diagnostic.json",
+      "diagnostic_condition_classification": "environment_specific_scale_candidate",
+      "diagnostic_sha256": "52949a0f2bd3cecb3dc442211cff8f81faa938496dcfeeb2a32a38904a4f8283",
+      "diagnostics": {
+        "curves": {
+          "cpu_restore": {
+            "classification": "environment_specific_scale_candidate",
+            "raw_mape_percent": 37.91881470703279,
+            "residual_mape_percent": 3.02000259744342,
+            "sample_count": 5,
+            "scale": 1.638679261810938
+          },
+          "recompute": {
+            "classification": "environment_specific_scale_candidate",
+            "raw_mape_percent": 46.36950207670988,
+            "residual_mape_percent": 3.3812990861248227,
+            "sample_count": 5,
+            "scale": 1.876367178401565
+          },
+          "tiered_fs_restore": {
+            "classification": "environment_specific_scale_candidate",
+            "raw_mape_percent": 49.073902472470124,
+            "residual_mape_percent": 5.204291304943723,
+            "sample_count": 3,
+            "scale": 1.9186493587705116
+          }
+        },
+        "method": "median_actual_over_frozen_prediction_scalar",
+        "thresholds": {
+          "raw_mape_percent_transferable_max": 15.0,
+          "scalar_residual_mape_percent_max": 15.0
+        }
+      },
+      "excluded_samples": [],
+      "primary_evaluation": {
+        "classification": "fixed_profile_transfer_fail",
+        "condition_id": "c-load",
+        "evaluation": {
+          "aggregate": {
+            "cpu_restore_mape_percent": 37.91881470703279,
+            "cpu_restore_sample_count": 5,
+            "decision_accuracy": 0.8,
+            "decision_correct": 8,
+            "decision_total": 10,
+            "principal_macro_mape_percent": 45.875014188435955,
+            "recompute_mape_percent": 46.36950207670988,
+            "recompute_sample_count": 5,
+            "tiered_fs_restore_mape_percent": 53.3367257815652,
+            "tiered_fs_restore_sample_count": 5
+          },
+          "samples": [
+            {
+              "actual_margin_ms": -0.12770332396030426,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 35.59159429278225,
+              "actual_restore_ms": 35.46389096882194,
+              "boundary_sensitive": true,
+              "confidence": "high",
+              "decision_correct": false,
+              "external_tokens": 104,
+              "predicted_margin_ms": 1.5599269999999983,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 19.659707,
+              "predicted_restore_ms": 21.219634,
+              "recompute_abs_error_ms": 15.931887292782246,
+              "recompute_relative_error": 0.447630616423753,
+              "requested_tokens": 128,
+              "restore_abs_error_ms": 14.244256968821944,
+              "restore_relative_error": 0.4016552211189904,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 8.253220631740987,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 35.59159429278225,
+              "actual_restore_ms": 43.844814924523234,
+              "boundary_sensitive": false,
+              "confidence": "low",
+              "decision_correct": false,
+              "external_tokens": 104,
+              "predicted_margin_ms": -3.5187187241379334,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 19.659707,
+              "predicted_restore_ms": 16.140988275862068,
+              "recompute_abs_error_ms": 15.931887292782246,
+              "recompute_relative_error": 0.447630616423753,
+              "requested_tokens": 128,
+              "restore_abs_error_ms": 27.703826648661167,
+              "restore_relative_error": 0.6318609554254474,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -3.3588880207389664,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 39.13054675795138,
+              "actual_restore_ms": 35.77165873721241,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 168,
+              "predicted_margin_ms": -0.3563510000000001,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 22.185918,
+              "predicted_restore_ms": 21.829567,
+              "recompute_abs_error_ms": 16.944628757951378,
+              "recompute_relative_error": 0.43302816244212605,
+              "requested_tokens": 192,
+              "restore_abs_error_ms": 13.942091737212412,
+              "restore_relative_error": 0.3897524529022967,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 20.502150035463274,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 39.13054675795138,
+              "actual_restore_ms": 59.63269679341465,
+              "boundary_sensitive": false,
+              "confidence": "low",
+              "decision_correct": true,
+              "external_tokens": 168,
+              "predicted_margin_ms": 3.88798613793103,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 22.185918,
+              "predicted_restore_ms": 26.07390413793103,
+              "recompute_abs_error_ms": 16.944628757951378,
+              "recompute_relative_error": 0.43302816244212605,
+              "requested_tokens": 192,
+              "restore_abs_error_ms": 33.55879265548362,
+              "restore_relative_error": 0.562758259478709,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -13.72628409881144,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 50.029184040613465,
+              "actual_restore_ms": 36.302899941802025,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 232,
+              "predicted_margin_ms": -4.790752000000001,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 26.66279,
+              "predicted_restore_ms": 21.872038,
+              "recompute_abs_error_ms": 23.366394040613464,
+              "recompute_relative_error": 0.4670552696131268,
+              "requested_tokens": 256,
+              "restore_abs_error_ms": 14.430861941802025,
+              "restore_relative_error": 0.39751264953864446,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 19.055278063751764,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 50.029184040613465,
+              "actual_restore_ms": 69.08446210436523,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 232,
+              "predicted_margin_ms": 9.344029999999997,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 26.66279,
+              "predicted_restore_ms": 36.00682,
+              "recompute_abs_error_ms": 23.366394040613464,
+              "recompute_relative_error": 0.4670552696131268,
+              "requested_tokens": 256,
+              "restore_abs_error_ms": 33.07764210436523,
+              "restore_relative_error": 0.4788000238663675,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -116.59021321684122,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 156.4591142348945,
+              "actual_restore_ms": 39.868901018053286,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 1024,
+              "predicted_margin_ms": -56.57189,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 81.258424,
+              "predicted_restore_ms": 24.686534,
+              "recompute_abs_error_ms": 75.20069023489451,
+              "recompute_relative_error": 0.48064116048870464,
+              "requested_tokens": 1024,
+              "restore_abs_error_ms": 15.182367018053284,
+              "restore_relative_error": 0.38080726155903977,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 30.678425380028784,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 156.4591142348945,
+              "actual_restore_ms": 187.1375396149233,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 1024,
+              "predicted_margin_ms": 20.540397,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 81.258424,
+              "predicted_restore_ms": 101.798821,
+              "recompute_abs_error_ms": 75.20069023489451,
+              "recompute_relative_error": 0.48064116048870464,
+              "requested_tokens": 1024,
+              "restore_abs_error_ms": 85.3387186149233,
+              "restore_relative_error": 0.456021377594931,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -554.0379307232797,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 606.2997298547998,
+              "actual_restore_ms": 52.26179913152009,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 4088,
+              "predicted_margin_ms": -273.92685700000004,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 309.14017,
+              "predicted_restore_ms": 35.213313,
+              "recompute_abs_error_ms": 297.1595598547998,
+              "recompute_relative_error": 0.4901198948677831,
+              "requested_tokens": 4096,
+              "restore_abs_error_ms": 17.048486131520093,
+              "restore_relative_error": 0.3262131502326682,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 794.9730658438054,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 606.2997298547998,
+              "actual_restore_ms": 1401.2727956986053,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 4088,
+              "predicted_margin_ms": 339.094689,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 309.14017,
+              "predicted_restore_ms": 648.234859,
+              "recompute_abs_error_ms": 297.1595598547998,
+              "recompute_relative_error": 0.4901198948677831,
+              "requested_tokens": 4096,
+              "restore_abs_error_ms": 753.0379366986052,
+              "restore_relative_error": 0.5373956727128052,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            }
+          ]
+        },
+        "gate": {
+          "clear_margin_wrong_decisions": 0,
+          "failure_reasons": [
+            "decision_accuracy",
+            "principal_macro_mape",
+            "principal_curve_mape"
+          ],
+          "high_confidence": {
+            "cpu_restore_mape_percent": 37.91881470703279,
+            "cpu_restore_sample_count": 5,
+            "decision_accuracy": 0.875,
+            "decision_correct": 7,
+            "decision_total": 8,
+            "principal_macro_mape_percent": 44.45407308540427,
+            "recompute_mape_percent": 46.36950207670988,
+            "recompute_sample_count": 5,
+            "tiered_fs_restore_mape_percent": 49.07390247247013,
+            "tiered_fs_restore_sample_count": 3
+          },
+          "missing_principal_curves": [],
+          "thresholds": {
+            "boundary_margin_ms": 1.0,
+            "decision_accuracy_min": 0.95,
+            "principal_curve_mape_percent_max": 20.0,
+            "principal_macro_mape_percent_max": 15.0
+          }
+        },
+        "issue": 15,
+        "low_confidence_samples": [
+          {
+            "actual_margin_ms": 8.253220631740987,
+            "actual_preferred": "recompute",
+            "actual_recompute_ms": 35.59159429278225,
+            "actual_restore_ms": 43.844814924523234,
+            "boundary_sensitive": false,
+            "confidence": "low",
+            "decision_correct": false,
+            "external_tokens": 104,
+            "predicted_margin_ms": -3.5187187241379334,
+            "predicted_preferred": "restore",
+            "predicted_recompute_ms": 19.659707,
+            "predicted_restore_ms": 16.140988275862068,
+            "recompute_abs_error_ms": 15.931887292782246,
+            "recompute_relative_error": 0.447630616423753,
+            "requested_tokens": 128,
+            "restore_abs_error_ms": 27.703826648661167,
+            "restore_relative_error": 0.6318609554254474,
+            "runtime_scale": 1.0,
+            "source": "secondary:filesystem"
+          },
+          {
+            "actual_margin_ms": 20.502150035463274,
+            "actual_preferred": "recompute",
+            "actual_recompute_ms": 39.13054675795138,
+            "actual_restore_ms": 59.63269679341465,
+            "boundary_sensitive": false,
+            "confidence": "low",
+            "decision_correct": true,
+            "external_tokens": 168,
+            "predicted_margin_ms": 3.88798613793103,
+            "predicted_preferred": "recompute",
+            "predicted_recompute_ms": 22.185918,
+            "predicted_restore_ms": 26.07390413793103,
+            "recompute_abs_error_ms": 16.944628757951378,
+            "recompute_relative_error": 0.43302816244212605,
+            "requested_tokens": 192,
+            "restore_abs_error_ms": 33.55879265548362,
+            "restore_relative_error": 0.562758259478709,
+            "runtime_scale": 1.0,
+            "source": "secondary:filesystem"
+          }
+        ],
+        "mode": "frozen_profile_holdout",
+        "percentile": "p95",
+        "profile_identity": "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json",
+        "schema_version": 1
+      },
+      "primary_evaluation_artifact": "/code/results/cache/issue15-structured/c-load-c2-frozen-raw-evaluation.json",
+      "primary_evaluation_sha256": "97f7e307dbc5435d179cf0de12a2aad21f05b0cbead2e4e7b6f9f207112e42b1"
+    },
+    "c-model": {
+      "accepted_samples": [
+        {
+          "external_kv_tokens_per_request": 104,
+          "external_kv_tokens_total": 832,
+          "latency_ms": {
+            "recompute": {
+              "p95": 34.4685984775424
+            },
+            "restore": {
+              "p95": 33.96805839147419
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p128__r0.000__c1__qinf__bede3577",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "cpu-offload__eviction-restore__p128__r0.000__c1__qinf__c3e0550a",
+            "restore_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3"
+          },
+          "requested_tokens": 128,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 163577856,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "4660f2d9952b845431952f15473c8ee13a955275bc4c59a6729245c73c6d8317",
+            "populate_sha256": "47c67724bb47b2835ccb1f5969f77aec3b5ddf450285d7ef6ba215dcd524e58d"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 104,
+          "external_kv_tokens_total": 832,
+          "latency_ms": {
+            "recompute": {
+              "p95": 34.4685984775424
+            },
+            "restore": {
+              "p95": 68.07780298404396
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p128__r0.000__c1__qinf__bede3577",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "tiered-fs__eviction-restore__p128__r0.000__c1__qinf__699b0257",
+            "restore_run_directory": "/code/results/cache/20260811T102442Z-2c398118"
+          },
+          "requested_tokens": 128,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 163577856,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 0.235213053878,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "4660f2d9952b845431952f15473c8ee13a955275bc4c59a6729245c73c6d8317",
+            "populate_sha256": "47c67724bb47b2835ccb1f5969f77aec3b5ddf450285d7ef6ba215dcd524e58d"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 168,
+          "external_kv_tokens_total": 1344,
+          "latency_ms": {
+            "recompute": {
+              "p95": 40.8041981048882
+            },
+            "restore": {
+              "p95": 35.0378270028159
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p192__r0.000__c1__qinf__8b515350",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "cpu-offload__eviction-restore__p192__r0.000__c1__qinf__c82461c5",
+            "restore_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3"
+          },
+          "requested_tokens": 192,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 264241152,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "a3afbc7ff19c1413d1fcd677af76ea48ac9284f23f828f072945869fe9f8de73",
+            "populate_sha256": "3c1c1806351faaa7633b07c37cc1ca207ec181b9a44ac997cd6b286827d33ebe"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 168,
+          "external_kv_tokens_total": 1344,
+          "latency_ms": {
+            "recompute": {
+              "p95": 40.8041981048882
+            },
+            "restore": {
+              "p95": 88.38228362146765
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p192__r0.000__c1__qinf__8b515350",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "tiered-fs__eviction-restore__p192__r0.000__c1__qinf__175a65d5",
+            "restore_run_directory": "/code/results/cache/20260811T102442Z-2c398118"
+          },
+          "requested_tokens": 192,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 264241152,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 0.385454040952,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "a3afbc7ff19c1413d1fcd677af76ea48ac9284f23f828f072945869fe9f8de73",
+            "populate_sha256": "3c1c1806351faaa7633b07c37cc1ca207ec181b9a44ac997cd6b286827d33ebe"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 232,
+          "external_kv_tokens_total": 1856,
+          "latency_ms": {
+            "recompute": {
+              "p95": 53.08402911759913
+            },
+            "restore": {
+              "p95": 34.57002160139382
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p256__r0.000__c1__qinf__cea55e8b",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "cpu-offload__eviction-restore__p256__r0.000__c1__qinf__4a01225f",
+            "restore_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3"
+          },
+          "requested_tokens": 256,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 364904448,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "b01bce7fce62c740fd38f1fd589df61a7900995a3b05783f1536b1471413d8f6",
+            "populate_sha256": "d0d78d067bd85726ff1cd056ce8daf85381080127f731b8b028d46daa6faf38b"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 232,
+          "external_kv_tokens_total": 1856,
+          "latency_ms": {
+            "recompute": {
+              "p95": 53.08402911759913
+            },
+            "restore": {
+              "p95": 101.56284961849451
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p256__r0.000__c1__qinf__cea55e8b",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "tiered-fs__eviction-restore__p256__r0.000__c1__qinf__bbb916d2",
+            "restore_run_directory": "/code/results/cache/20260811T102442Z-2c398118"
+          },
+          "requested_tokens": 256,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 364904448,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 0.501008916646,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "b01bce7fce62c740fd38f1fd589df61a7900995a3b05783f1536b1471413d8f6",
+            "populate_sha256": "d0d78d067bd85726ff1cd056ce8daf85381080127f731b8b028d46daa6faf38b"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 1024,
+          "external_kv_tokens_total": 8192,
+          "latency_ms": {
+            "recompute": {
+              "p95": 164.43497000727803
+            },
+            "restore": {
+              "p95": 41.1363861290738
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p1024__r0.000__c1__qinf__33910ffb",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "cpu-offload__eviction-restore__p1024__r0.000__c1__qinf__f633a9af",
+            "restore_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3"
+          },
+          "requested_tokens": 1024,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 1610612736,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "3c57d4e7cbc26c94a0db07898a41577db9242163bd78589f79e3596b80075a7d",
+            "populate_sha256": "7b4f89db161d259cfcfc64022ef7e321a26e38a70ee33fec821dcdada989d656"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 1024,
+          "external_kv_tokens_total": 8192,
+          "latency_ms": {
+            "recompute": {
+              "p95": 164.43497000727803
+            },
+            "restore": {
+              "p95": 556.9283749675378
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p1024__r0.000__c1__qinf__33910ffb",
+            "recompute_run_directory": "/code/results/cache/20260811T095047Z-0551f2c3",
+            "restore_case_id": "tiered-fs__eviction-restore__p1024__r0.000__c1__qinf__b9b23a4b",
+            "restore_run_directory": "/code/results/cache/20260811T102442Z-2c398118"
+          },
+          "requested_tokens": 1024,
+          "source": "secondary:filesystem",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 1610612736,
+            "cpu_to_gpu_transfers": 8,
+            "tiered_fs_async_lookup_seconds": 3.197770513128,
+            "tiered_fs_async_lookups": 8
+          },
+          "workload": {
+            "measure_sha256": "3c57d4e7cbc26c94a0db07898a41577db9242163bd78589f79e3596b80075a7d",
+            "populate_sha256": "7b4f89db161d259cfcfc64022ef7e321a26e38a70ee33fec821dcdada989d656"
+          }
+        },
+        {
+          "external_kv_tokens_per_request": 4088,
+          "external_kv_tokens_total": 32704,
+          "latency_ms": {
+            "recompute": {
+              "p95": 621.0638807155192
+            },
+            "restore": {
+              "p95": 61.819229810498655
+            }
+          },
+          "provenance": {
+            "recompute_case_id": "no-cache__eviction-restore__p4096__r0.000__c1__qinf__e852b641",
+            "recompute_run_directory": "/code/results/cache/20260811T100709Z-b9003e1e",
+            "restore_case_id": "cpu-offload__eviction-restore__p4096__r0.000__c1__qinf__f3ffbd96",
+            "restore_run_directory": "/code/results/cache/20260811T100709Z-b9003e1e"
+          },
+          "requested_tokens": 4096,
+          "source": "cpu_primary",
+          "transfer_evidence": {
+            "cpu_to_gpu_bytes": 6429868032,
+            "cpu_to_gpu_transfers": 8
+          },
+          "workload": {
+            "measure_sha256": "8a07e392e53bc91f4a5c90b3e7adfda589fc414cb2ba48a7426c545923ce5cbd",
+            "populate_sha256": "6cf2e87d4dba067c899d54f22e607ec91a6fd1abf604ede04a1dbba23f501a19"
+          }
+        }
+      ],
+      "condition": {
+        "concurrency": 1,
+        "environment_artifact": "/code/results/cache/20260811T095047Z-0551f2c3/environment.json",
+        "gpu_index": 0,
+        "gpu_uuid": "GPU-5516e45d-3e50-69ef-f0f2-8ecff465beea",
+        "id": "c-model",
+        "model": "/mnt/model/Qwen2.5-14B-Instruct",
+        "request_rate": "inf",
+        "requests_per_case": 8,
+        "run_directories": {
+          "cpu_primary": "/code/results/cache/20260811T095047Z-0551f2c3",
+          "recompute": "/code/results/cache/20260811T095047Z-0551f2c3",
+          "secondary:filesystem": "/code/results/cache/20260811T102442Z-2c398118"
+        },
+        "served_model": "qwen2.5-14b",
+        "tensor_parallel_size": 1
+      },
+      "curve_classification": {
+        "cpu_restore": "environment_specific_scale_candidate",
+        "recompute": "environment_specific_scale_candidate",
+        "tiered_fs_restore": "curve_shape_or_missing_feature"
+      },
+      "dataset_artifact": "/code/results/cache/issue15-structured/c-model-final-dataset.json",
+      "dataset_sha256": "6e5c10e7e7ac6095f9036a4828801a31861fa03547488a3ce51c2c167697d388",
+      "diagnostic_artifact": "/code/results/cache/issue15-structured/c-model-scale-diagnostic.json",
+      "diagnostic_condition_classification": "curve_shape_or_missing_feature",
+      "diagnostic_sha256": "2510f3fc5f56f9243d7c6f37b3c2bf517be1b0a8406fb1894ce18423067655f9",
+      "diagnostics": {
+        "curves": {
+          "cpu_restore": {
+            "classification": "environment_specific_scale_candidate",
+            "raw_mape_percent": 38.99715799355476,
+            "residual_mape_percent": 2.813674712080732,
+            "sample_count": 5,
+            "scale": 1.6050628490622787
+          },
+          "recompute": {
+            "classification": "environment_specific_scale_candidate",
+            "raw_mape_percent": 47.83431919675252,
+            "residual_mape_percent": 4.864094037221591,
+            "sample_count": 5,
+            "scale": 1.990940524888773
+          },
+          "tiered_fs_restore": {
+            "classification": "curve_shape_or_missing_feature",
+            "raw_mape_percent": 73.13431658953533,
+            "residual_mape_percent": 35.59994055402757,
+            "sample_count": 2,
+            "scale": 4.145764227516663
+          }
+        },
+        "method": "median_actual_over_frozen_prediction_scalar",
+        "thresholds": {
+          "raw_mape_percent_transferable_max": 15.0,
+          "scalar_residual_mape_percent_max": 15.0
+        }
+      },
+      "excluded_samples": [
+        {
+          "case_id": "cpu-offload__eviction-restore__p4096__r0.000__c1__qinf__f3ffbd96",
+          "reason": "no_external_kv_tokens",
+          "requested_tokens": 4096,
+          "source": "cpu_primary"
+        },
+        {
+          "case_id": "tiered-fs__eviction-restore__p4096__r0.000__c1__qinf__0050a9b2",
+          "reason": "kv_offload_allocation_failure",
+          "requested_tokens": 4096,
+          "source": "secondary:filesystem"
+        }
+      ],
+      "primary_evaluation": {
+        "classification": "fixed_profile_transfer_fail",
+        "condition_id": "c-model",
+        "evaluation": {
+          "aggregate": {
+            "cpu_restore_mape_percent": 38.99715799355476,
+            "cpu_restore_sample_count": 5,
+            "decision_accuracy": 0.7777777777777778,
+            "decision_correct": 7,
+            "decision_total": 9,
+            "principal_macro_mape_percent": 53.365303586882966,
+            "recompute_mape_percent": 47.83431919675252,
+            "recompute_sample_count": 5,
+            "tiered_fs_restore_mape_percent": 73.26443357034161,
+            "tiered_fs_restore_sample_count": 4
+          },
+          "samples": [
+            {
+              "actual_margin_ms": -0.500540086068213,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 34.4685984775424,
+              "actual_restore_ms": 33.96805839147419,
+              "boundary_sensitive": true,
+              "confidence": "high",
+              "decision_correct": false,
+              "external_tokens": 104,
+              "predicted_margin_ms": 1.5599269999999983,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 19.659707,
+              "predicted_restore_ms": 21.219634,
+              "recompute_abs_error_ms": 14.8088914775424,
+              "recompute_relative_error": 0.4296342796528543,
+              "requested_tokens": 128,
+              "restore_abs_error_ms": 12.748424391474188,
+              "restore_relative_error": 0.3753062434287966,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 33.609204506501555,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 34.4685984775424,
+              "actual_restore_ms": 68.07780298404396,
+              "boundary_sensitive": false,
+              "confidence": "low",
+              "decision_correct": false,
+              "external_tokens": 104,
+              "predicted_margin_ms": -3.5187187241379334,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 19.659707,
+              "predicted_restore_ms": 16.140988275862068,
+              "recompute_abs_error_ms": 14.8088914775424,
+              "recompute_relative_error": 0.4296342796528543,
+              "requested_tokens": 128,
+              "restore_abs_error_ms": 51.936814708181885,
+              "restore_relative_error": 0.7629038017039829,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -5.7663711020722985,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 40.8041981048882,
+              "actual_restore_ms": 35.0378270028159,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 168,
+              "predicted_margin_ms": -0.3563510000000001,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 22.185918,
+              "predicted_restore_ms": 21.829567,
+              "recompute_abs_error_ms": 18.6182801048882,
+              "recompute_relative_error": 0.45628344556678824,
+              "requested_tokens": 192,
+              "restore_abs_error_ms": 13.208260002815901,
+              "restore_relative_error": 0.3769714372342322,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 47.57808551657945,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 40.8041981048882,
+              "actual_restore_ms": 88.38228362146765,
+              "boundary_sensitive": false,
+              "confidence": "low",
+              "decision_correct": true,
+              "external_tokens": 168,
+              "predicted_margin_ms": 3.88798613793103,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 22.185918,
+              "predicted_restore_ms": 26.07390413793103,
+              "recompute_abs_error_ms": 18.6182801048882,
+              "recompute_relative_error": 0.45628344556678824,
+              "requested_tokens": 192,
+              "restore_abs_error_ms": 62.30837948353662,
+              "restore_relative_error": 0.7049872093189749,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -18.51400751620531,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 53.08402911759913,
+              "actual_restore_ms": 34.57002160139382,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 232,
+              "predicted_margin_ms": -4.790752000000001,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 26.66279,
+              "predicted_restore_ms": 21.872038,
+              "recompute_abs_error_ms": 26.42123911759913,
+              "recompute_relative_error": 0.49772482527780854,
+              "requested_tokens": 256,
+              "restore_abs_error_ms": 12.697983601393819,
+              "restore_relative_error": 0.36731199499400524,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 48.47882050089538,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 53.08402911759913,
+              "actual_restore_ms": 101.56284961849451,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 232,
+              "predicted_margin_ms": 9.344029999999997,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 26.66279,
+              "predicted_restore_ms": 36.00682,
+              "recompute_abs_error_ms": 26.42123911759913,
+              "recompute_relative_error": 0.49772482527780854,
+              "requested_tokens": 256,
+              "restore_abs_error_ms": 65.5560296184945,
+              "restore_relative_error": 0.6454725311936975,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -123.29858387820423,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 164.43497000727803,
+              "actual_restore_ms": 41.1363861290738,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 1024,
+              "predicted_margin_ms": -56.57189,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 81.258424,
+              "predicted_restore_ms": 24.686534,
+              "recompute_abs_error_ms": 83.17654600727802,
+              "recompute_relative_error": 0.5058324637611851,
+              "requested_tokens": 1024,
+              "restore_abs_error_ms": 16.449852129073797,
+              "restore_relative_error": 0.39988568945893865,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            },
+            {
+              "actual_margin_ms": 392.4934049602598,
+              "actual_preferred": "recompute",
+              "actual_recompute_ms": 164.43497000727803,
+              "actual_restore_ms": 556.9283749675378,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 1024,
+              "predicted_margin_ms": 20.540397,
+              "predicted_preferred": "recompute",
+              "predicted_recompute_ms": 81.258424,
+              "predicted_restore_ms": 101.798821,
+              "recompute_abs_error_ms": 83.17654600727802,
+              "recompute_relative_error": 0.5058324637611851,
+              "requested_tokens": 1024,
+              "restore_abs_error_ms": 455.12955396753784,
+              "restore_relative_error": 0.8172138005970092,
+              "runtime_scale": 1.0,
+              "source": "secondary:filesystem"
+            },
+            {
+              "actual_margin_ms": -559.2446509050205,
+              "actual_preferred": "restore",
+              "actual_recompute_ms": 621.0638807155192,
+              "actual_restore_ms": 61.819229810498655,
+              "boundary_sensitive": false,
+              "confidence": "high",
+              "decision_correct": true,
+              "external_tokens": 4088,
+              "predicted_margin_ms": -273.92685700000004,
+              "predicted_preferred": "restore",
+              "predicted_recompute_ms": 309.14017,
+              "predicted_restore_ms": 35.213313,
+              "recompute_abs_error_ms": 311.9237107155192,
+              "recompute_relative_error": 0.5022409455789896,
+              "requested_tokens": 4096,
+              "restore_abs_error_ms": 26.605916810498655,
+              "restore_relative_error": 0.4303825345617654,
+              "runtime_scale": 1.0,
+              "source": "cpu_primary"
+            }
+          ]
+        },
+        "gate": {
+          "clear_margin_wrong_decisions": 0,
+          "failure_reasons": [
+            "decision_accuracy",
+            "principal_macro_mape",
+            "principal_curve_mape"
+          ],
+          "high_confidence": {
+            "cpu_restore_mape_percent": 38.99715799355476,
+            "cpu_restore_sample_count": 5,
+            "decision_accuracy": 0.8571428571428571,
+            "decision_correct": 6,
+            "decision_total": 7,
+            "principal_macro_mape_percent": 53.32193125994754,
+            "recompute_mape_percent": 47.83431919675252,
+            "recompute_sample_count": 5,
+            "tiered_fs_restore_mape_percent": 73.13431658953533,
+            "tiered_fs_restore_sample_count": 2
+          },
+          "missing_principal_curves": [],
+          "thresholds": {
+            "boundary_margin_ms": 1.0,
+            "decision_accuracy_min": 0.95,
+            "principal_curve_mape_percent_max": 20.0,
+            "principal_macro_mape_percent_max": 15.0
+          }
+        },
+        "issue": 15,
+        "low_confidence_samples": [
+          {
+            "actual_margin_ms": 33.609204506501555,
+            "actual_preferred": "recompute",
+            "actual_recompute_ms": 34.4685984775424,
+            "actual_restore_ms": 68.07780298404396,
+            "boundary_sensitive": false,
+            "confidence": "low",
+            "decision_correct": false,
+            "external_tokens": 104,
+            "predicted_margin_ms": -3.5187187241379334,
+            "predicted_preferred": "restore",
+            "predicted_recompute_ms": 19.659707,
+            "predicted_restore_ms": 16.140988275862068,
+            "recompute_abs_error_ms": 14.8088914775424,
+            "recompute_relative_error": 0.4296342796528543,
+            "requested_tokens": 128,
+            "restore_abs_error_ms": 51.936814708181885,
+            "restore_relative_error": 0.7629038017039829,
+            "runtime_scale": 1.0,
+            "source": "secondary:filesystem"
+          },
+          {
+            "actual_margin_ms": 47.57808551657945,
+            "actual_preferred": "recompute",
+            "actual_recompute_ms": 40.8041981048882,
+            "actual_restore_ms": 88.38228362146765,
+            "boundary_sensitive": false,
+            "confidence": "low",
+            "decision_correct": true,
+            "external_tokens": 168,
+            "predicted_margin_ms": 3.88798613793103,
+            "predicted_preferred": "recompute",
+            "predicted_recompute_ms": 22.185918,
+            "predicted_restore_ms": 26.07390413793103,
+            "recompute_abs_error_ms": 18.6182801048882,
+            "recompute_relative_error": 0.45628344556678824,
+            "requested_tokens": 192,
+            "restore_abs_error_ms": 62.30837948353662,
+            "restore_relative_error": 0.7049872093189749,
+            "runtime_scale": 1.0,
+            "source": "secondary:filesystem"
+          }
+        ],
+        "mode": "frozen_profile_holdout",
+        "percentile": "p95",
+        "profile_identity": "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json",
+        "schema_version": 1
+      },
+      "primary_evaluation_artifact": "/code/results/cache/issue15-structured/c-model-frozen-raw-evaluation.json",
+      "primary_evaluation_sha256": "e45b9d49e5e2f738c55b213561eb5fdf6d6251a9bf7f54100414432ff9c3c52a"
+    }
+  },
+  "control_c0": {
+    "concurrency": 1,
+    "coordinate": "runtime actual external KV tokens per request",
+    "decision_accuracy": 1.0,
+    "decision_correct": 14,
+    "decision_total": 14,
+    "filesystem_provenance": "container-local overlay-backed filesystem; not physical NVMe",
+    "model": "Qwen2.5-7B-Instruct",
+    "principal_macro_mape_percent": 0.09,
+    "source": "docs/engineering/validation/2026-08-10-issue14-shadow-cost-model-calibration.json"
+  },
+  "experiment_date": "2026-08-11",
+  "failure_boundaries": [
+    {
+      "actual_margin_ms": -0.12770332396030426,
+      "condition": "c-load",
+      "confidence": "high",
+      "external_tokens": 104,
+      "interpretation": "Wrong frozen decision occurs inside the pre-registered <=1 ms boundary-sensitive region; this is not a clear-margin wrong decision.",
+      "requested_tokens": 128,
+      "source": "cpu_primary"
+    },
+    {
+      "actual_margin_ms": 8.253220631740987,
+      "condition": "c-load",
+      "confidence": "low",
+      "external_tokens": 104,
+      "interpretation": "Short-token filesystem extrapolation is low-confidence and wrong with a clear actual margin; it must not expand active eligibility.",
+      "requested_tokens": 128,
+      "source": "secondary:filesystem"
+    },
+    {
+      "actual_margin_ms": -0.500540086068213,
+      "condition": "c-model",
+      "confidence": "high",
+      "external_tokens": 104,
+      "interpretation": "Wrong frozen decision is boundary-sensitive (<=1 ms actual margin); the larger failure is systematic scale drift, not a clear-margin CPU error.",
+      "requested_tokens": 128,
+      "source": "cpu_primary"
+    },
+    {
+      "actual_margin_ms": 33.609204506501555,
+      "condition": "c-model",
+      "confidence": "low",
+      "external_tokens": 104,
+      "interpretation": "Short-token filesystem prediction is low-confidence and wrong with a large margin.",
+      "requested_tokens": 128,
+      "source": "secondary:filesystem"
+    },
+    {
+      "condition": "c-model",
+      "confidence": "invalid",
+      "external_tokens": null,
+      "interpretation": "Formal filesystem restore was partial and emitted kv_offload_allocation_failure; the sample is excluded rather than treated as a valid restore.",
+      "requested_tokens": 4096,
+      "source": "secondary:filesystem"
+    }
+  ],
+  "issue": 15,
+  "issue16_eligibility": [
+    {
+      "active_design_eligibility": "eligible",
+      "concurrency": 1,
+      "confidence": "measured baseline; retain boundary fallback",
+      "external_token_region": [
+        104,
+        4088
+      ],
+      "fixed_profile_verdict": "pass in Issue #14 control",
+      "model": "Qwen2.5-7B-Instruct",
+      "reason": "Issue #14 achieved 14/14 decisions and 0.090% principal macro-MAPE. Eligibility means active-design consideration only, not enabled runtime behavior.",
+      "region": "C0 7B/C1 CPU-primary measured baseline",
+      "source": "cpu_primary"
+    },
+    {
+      "active_design_eligibility": "eligible",
+      "concurrency": 1,
+      "confidence": "measured baseline",
+      "external_token_region": [
+        232,
+        4088
+      ],
+      "fixed_profile_verdict": "pass in Issue #14 control",
+      "model": "Qwen2.5-7B-Instruct",
+      "reason": "The checked-in calibrated control is accurate in its measured filesystem range. This is overlay-backed filesystem evidence, not physical NVMe.",
+      "region": "C0 7B/C1 filesystem measured baseline",
+      "source": "secondary:filesystem"
+    },
+    {
+      "active_design_eligibility": "needs_online_calibration",
+      "concurrency": 2,
+      "confidence": "high-confidence formal samples exist",
+      "external_token_region": [
+        104,
+        4088
+      ],
+      "fixed_profile_verdict": "fail",
+      "model": "Qwen2.5-7B-Instruct",
+      "reason": "Raw CPU restore MAPE is 37.919%; one scalar reduces residual MAPE to 3.020%. Recompute also requires an environment/load scale.",
+      "region": "C-load 7B/C2 CPU-primary",
+      "source": "cpu_primary"
+    },
+    {
+      "active_design_eligibility": "needs_online_calibration",
+      "concurrency": 2,
+      "confidence": "high after short-token extrapolation region",
+      "external_token_region": [
+        232,
+        4088
+      ],
+      "fixed_profile_verdict": "fail",
+      "model": "Qwen2.5-7B-Instruct",
+      "reason": "Raw filesystem MAPE is 49.074%; one scalar reduces residual to 5.204%. No active use until a bounded online scale mechanism is validated.",
+      "region": "C-load 7B/C2 filesystem high-confidence region",
+      "source": "secondary:filesystem"
+    },
+    {
+      "active_design_eligibility": "ineligible",
+      "concurrency": 2,
+      "confidence": "low",
+      "external_token_region": [
+        104,
+        168
+      ],
+      "fixed_profile_verdict": "fail / low-confidence",
+      "model": "Qwen2.5-7B-Instruct",
+      "reason": "The 104-external-token decision is wrong with a clear actual margin; low-confidence evidence never expands Issue #16 eligibility.",
+      "region": "C-load 7B/C2 filesystem short-token extrapolation",
+      "source": "secondary:filesystem"
+    },
+    {
+      "active_design_eligibility": "needs_online_calibration",
+      "concurrency": 1,
+      "confidence": "high-confidence formal samples exist",
+      "external_token_region": [
+        104,
+        4088
+      ],
+      "fixed_profile_verdict": "fail",
+      "model": "Qwen2.5-14B-Instruct",
+      "reason": "Raw CPU restore MAPE is 38.997%; one scalar reduces residual to 2.814%. Recompute scale is also model-sensitive (1.991 diagnostic scalar).",
+      "region": "C-model 14B/C1 CPU-primary",
+      "source": "cpu_primary"
+    },
+    {
+      "active_design_eligibility": "ineligible",
+      "concurrency": 1,
+      "confidence": "mixed; 104-168 low-confidence",
+      "external_token_region": [
+        104,
+        1024
+      ],
+      "fixed_profile_verdict": "fail",
+      "model": "Qwen2.5-14B-Instruct",
+      "reason": "A single filesystem scalar leaves 35.600% residual MAPE, so the curve requires a missing input/feature rather than scale-only calibration.",
+      "region": "C-model 14B/C1 filesystem valid measured region",
+      "source": "secondary:filesystem"
+    },
+    {
+      "active_design_eligibility": "ineligible",
+      "concurrency": 1,
+      "confidence": "invalid",
+      "external_token_region": null,
+      "fixed_profile_verdict": "invalid restore evidence",
+      "model": "Qwen2.5-14B-Instruct",
+      "reason": "The p4096 formal restore was partial and hit KV offload allocation failure; it is explicitly excluded.",
+      "region": "C-model 14B/C1 filesystem long-token p4096",
+      "source": "secondary:filesystem"
+    }
+  ],
+  "report_date": "2026-08-12",
+  "research_answers": {
+    "10_feature_before_wider_sweep": "Yes. A bounded online-scale mechanism plus an additional explanatory input for model/secondary-path behavior should be designed before a wider GPU/model sweep. The current minimal matrix already separates scale drift from shape failure.",
+    "1_recompute_transfer": "The frozen recompute curve does not transfer numerically to either new condition: C-load raw MAPE 46.370% and C-model 47.834%. Both become low-residual under a single scalar (3.381%, 4.864%), so recompute is scale-sensitive rather than fixed.",
+    "2_cpu_restore_transfer": "CPU restore also fails fixed transfer (37.919% C-load, 38.997% C-model raw MAPE) but is well described by one scalar (3.020%, 2.814% residual).",
+    "3_machine_memory_pcie_numa": "Issue #15 did not vary machines, GPU, PCIe topology, or NUMA placement, so no cross-machine transfer claim is supported. Capacity did matter for restore validity: 14B CPU p4096 required the logged 24 GiB correction, and the 2 GiB filesystem staging path failed partially at p4096.",
+    "4_secondary_path_specificity": "Filesystem behavior is tier-specific. Under C-load it is scale-like (5.204% residual), while under 14B/C1 it is shape/missing-feature limited (35.600% residual) and has an invalid long-token restore.",
+    "5_concurrency_scale_vs_shape": "The first qualifying load shift is C2. Relative to the same-session C1 sentinel, recompute changed 91.982%, CPU restore 62.153%, and filesystem restore 70.693%. All three C-load curves are repaired by one scalar, supporting load-dependent scale rather than shape failure.",
+    "6_fixed_parameters": "The external-token coordinate, tier separation, workload identity, and decision formula remain useful fixed structure. The Issue #14 absolute latency curves are not globally fixed outside C0.",
+    "7_online_calibrated_parameters": "At minimum, bounded runtime/environment scale is required for recompute and CPU restore outside C0; C-load filesystem is also scale-sensitive. The diagnostic scalar is evidence for the need, not a production calibration.",
+    "8_low_cardinality_runtime_observations": "Useful low-cardinality observations are runtime external KV tokens, source tier, concurrency/load identity, model identity/model class, transfer bytes/counts, restore allocation validity, and bounded environment/path scale observations.",
+    "9_low_confidence_systematic_error_regions": "Filesystem short-token extrapolation at external 104-168 is low-confidence; the 104-token decision is wrong in both new conditions. The 14B filesystem curve is additionally systematic shape failure, and p4096 is invalid."
+  },
+  "schema_version": 1,
+  "scope": {
+    "base_main_sha": "b43b3d83048f55f00f85e3e7d230d1b98c25b4f9",
+    "design": "docs/superpowers/specs/2026-08-11-issue15-generalization-validation-design.md",
+    "feature_head_before_final_evidence": "95480e2cd2c68aff299213e368351e3d2e5ddfb3",
+    "frozen_profile": "benchmarks/cache/profiles/issue14-shadow-cost-calibrated.json",
+    "hardware_axis_claim": "same-machine load and model-scale generalization only; no cross-machine claim",
+    "plan": "docs/superpowers/plans/2026-08-11-issue15-generalization-validation.md",
+    "primary_percentile": "p95",
+    "runtime_mode": "shadow_only"
+  },
+  "stop_decision": {
+    "active_runtime_changed": false,
+    "matrix": "stop",
+    "reason": "The two pre-registered new conditions distinguish scale-sensitive transfer from a secondary-path shape/missing-feature failure. A broader GPU/model sweep would not resolve the missing-feature design first."
+  },
+  "title": "Cost model generalization validation"
+}

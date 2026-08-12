@@ -447,7 +447,7 @@ _ENVIRONMENT_COMMANDS: dict[str, list[str]] = {
     "git_status": ["git", "status", "--porcelain"],
     "gpu_inventory": [
         "nvidia-smi",
-        "--query-gpu=name,memory.total,driver_version",
+        "--query-gpu=index,uuid,name,memory.total,driver_version",
         "--format=csv,noheader",
     ],
     "gpu_topology": ["nvidia-smi", "topo", "-m"],
