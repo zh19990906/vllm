@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from vllm.v1.kv_offload.tiering.fs import io as fs_io
@@ -952,6 +953,362 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
                 )
 
         manager._capacity.touch.assert_called_once_with(paths)
+
+    def test_runtime_eviction_updates_capacity_counters(self) -> None:
+        first = managed_path(
+            self.root,
+            "0011223344556677",
+        )
+        second = managed_path(
+            self.root,
+            "aabbccddeeff0011",
+        )
+
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=4,
+            expected_file_size=None,
+        ) as cap:
+            first_admission = cap.admit_write(str(first), 4)
+            self.assertEqual(
+                first_admission.status,
+                AdmissionStatus.RESERVED,
+            )
+            first.write_bytes(b"a" * 4)
+            cap.commit_write(first_admission.reservation)
+
+            second_admission = cap.admit_write(str(second), 4)
+            self.assertEqual(
+                second_admission.status,
+                AdmissionStatus.RESERVED,
+            )
+            second.write_bytes(b"b" * 4)
+            cap.commit_write(second_admission.reservation)
+
+            snapshot = cap.snapshot()
+            self.assertEqual(snapshot.eviction_count, 1)
+            self.assertEqual(snapshot.evicted_bytes, 4)
+
+    def test_restart_shrink_updates_capacity_counters(self) -> None:
+        first = managed_path(
+            self.root,
+            "0011223344556677",
+        )
+        second = managed_path(
+            self.root,
+            "aabbccddeeff0011",
+        )
+        first.write_bytes(b"a" * 4)
+        second.write_bytes(b"b" * 4)
+
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=4,
+            expected_file_size=4,
+        ) as cap:
+            snapshot = cap.snapshot()
+            self.assertEqual(snapshot.accounted_bytes, 4)
+            self.assertEqual(snapshot.eviction_count, 1)
+            self.assertEqual(snapshot.evicted_bytes, 4)
+
+    def test_filesystem_metric_definition_contract(self) -> None:
+        from vllm.v1.kv_offload.base import (
+            OffloadingCounterMetadata,
+            OffloadingGaugeMetadata,
+        )
+
+        definitions = (
+            fs_manager.FileSystemTierManager.build_metric_definitions({})
+        )
+
+        gauge_names = {
+            "vllm:kv_offload_fs_capacity_bytes",
+            "vllm:kv_offload_fs_accounted_bytes",
+            "vllm:kv_offload_fs_reserved_bytes",
+        }
+        counter_names = {
+            "vllm:kv_offload_fs_evictions",
+            "vllm:kv_offload_fs_evicted_bytes",
+            "vllm:kv_offload_fs_capacity_skips",
+            "vllm:kv_offload_fs_eviction_failures",
+        }
+
+        self.assertEqual(
+            set(definitions),
+            gauge_names | counter_names,
+        )
+
+        for name in gauge_names:
+            self.assertIsInstance(
+                definitions[name],
+                OffloadingGaugeMetadata,
+            )
+            self.assertEqual(
+                definitions[name].labelnames,
+                ("tier",),
+            )
+
+        for name in {
+            "vllm:kv_offload_fs_evictions",
+            "vllm:kv_offload_fs_evicted_bytes",
+            "vllm:kv_offload_fs_eviction_failures",
+        }:
+            self.assertIsInstance(
+                definitions[name],
+                OffloadingCounterMetadata,
+            )
+            self.assertEqual(
+                definitions[name].labelnames,
+                ("tier",),
+            )
+
+        skip = definitions[
+            "vllm:kv_offload_fs_capacity_skips"
+        ]
+        self.assertIsInstance(skip, OffloadingCounterMetadata)
+        self.assertEqual(
+            skip.labelnames,
+            ("tier", "reason"),
+        )
+
+    def test_filesystem_stats_emit_gauges_and_positive_counter_deltas(
+        self,
+    ) -> None:
+        class FakeCapacity:
+            def __init__(self, snapshots):
+                self._snapshots = iter(snapshots)
+
+            def snapshot(self):
+                return next(self._snapshots)
+
+        manager = object.__new__(
+            fs_manager.FileSystemTierManager
+        )
+        manager.instance_id = "fs:0"
+        manager._last_capacity_counters = (
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        manager._capacity = FakeCapacity(
+            [
+                SimpleNamespace(
+                    max_bytes=100,
+                    accounted_bytes=40,
+                    reserved_bytes=10,
+                    eviction_count=3,
+                    evicted_bytes=60,
+                    oversized_skip_count=2,
+                    capacity_skip_count=4,
+                    eviction_failure_count=1,
+                ),
+                SimpleNamespace(
+                    max_bytes=100,
+                    accounted_bytes=50,
+                    reserved_bytes=0,
+                    eviction_count=3,
+                    evicted_bytes=60,
+                    oversized_skip_count=2,
+                    capacity_skip_count=4,
+                    eviction_failure_count=1,
+                ),
+                SimpleNamespace(
+                    max_bytes=100,
+                    accounted_bytes=30,
+                    reserved_bytes=20,
+                    eviction_count=5,
+                    evicted_bytes=100,
+                    oversized_skip_count=3,
+                    capacity_skip_count=7,
+                    eviction_failure_count=2,
+                ),
+            ]
+        )
+
+        first = manager.get_stats()
+        self.assertIsNotNone(first)
+        first_data = first.data["data"]
+
+        self.assertEqual(
+            first_data[
+                "vllm:kv_offload_fs_capacity_bytes"
+            ],
+            {("fs:0",): 100},
+        )
+        self.assertEqual(
+            first_data[
+                "vllm:kv_offload_fs_accounted_bytes"
+            ],
+            {("fs:0",): 40},
+        )
+        self.assertEqual(
+            first_data[
+                "vllm:kv_offload_fs_reserved_bytes"
+            ],
+            {("fs:0",): 10},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_evictions"],
+            {("fs:0",): 3},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_evicted_bytes"],
+            {("fs:0",): 60},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_capacity_skips"],
+            {
+                ("fs:0", "oversized"): 2,
+                ("fs:0", "no_evictable_capacity"): 4,
+            },
+        )
+        self.assertEqual(
+            first_data[
+                "vllm:kv_offload_fs_eviction_failures"
+            ],
+            {("fs:0",): 1},
+        )
+
+        second = manager.get_stats()
+        self.assertIsNotNone(second)
+        second_data = second.data["data"]
+
+        self.assertEqual(
+            second_data[
+                "vllm:kv_offload_fs_accounted_bytes"
+            ],
+            {("fs:0",): 50},
+        )
+        self.assertEqual(
+            second_data[
+                "vllm:kv_offload_fs_reserved_bytes"
+            ],
+            {("fs:0",): 0},
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_evictions",
+            second_data,
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_evicted_bytes",
+            second_data,
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_capacity_skips",
+            second_data,
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_eviction_failures",
+            second_data,
+        )
+
+        third = manager.get_stats()
+        self.assertIsNotNone(third)
+        third_data = third.data["data"]
+
+        self.assertEqual(
+            third_data["vllm:kv_offload_fs_evictions"],
+            {("fs:0",): 2},
+        )
+        self.assertEqual(
+            third_data["vllm:kv_offload_fs_evicted_bytes"],
+            {("fs:0",): 40},
+        )
+        self.assertEqual(
+            third_data["vllm:kv_offload_fs_capacity_skips"],
+            {
+                ("fs:0", "oversized"): 1,
+                ("fs:0", "no_evictable_capacity"): 3,
+            },
+        )
+        self.assertEqual(
+            third_data[
+                "vllm:kv_offload_fs_eviction_failures"
+            ],
+            {("fs:0",): 1},
+        )
+
+    def test_multi_filesystem_stats_keep_instance_labels_distinct(
+        self,
+    ) -> None:
+        from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (
+            OffloadingConnectorStats,
+        )
+
+        snapshot = SimpleNamespace(
+            max_bytes=100,
+            accounted_bytes=40,
+            reserved_bytes=0,
+            eviction_count=0,
+            evicted_bytes=0,
+            oversized_skip_count=0,
+            capacity_skip_count=0,
+            eviction_failure_count=0,
+        )
+
+        managers = []
+        for instance_id in ("fs:0", "fs:1"):
+            manager = object.__new__(
+                fs_manager.FileSystemTierManager
+            )
+            manager.instance_id = instance_id
+            manager._last_capacity_counters = (
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+            manager._capacity = mock.MagicMock()
+            manager._capacity.snapshot.return_value = snapshot
+            managers.append(manager)
+
+        aggregate = OffloadingConnectorStats()
+        for manager in managers:
+            stats = manager.get_stats()
+            self.assertIsNotNone(stats)
+            aggregate.aggregate(stats)
+
+        self.assertEqual(
+            aggregate.data["data"][
+                "vllm:kv_offload_fs_capacity_bytes"
+            ],
+            {
+                ("fs:0",): 100,
+                ("fs:1",): 100,
+            },
+        )
+
+    def test_factory_instance_id_defaults_and_override(self) -> None:
+        from vllm.v1.kv_offload.tiering.factory import (
+            SecondaryTierFactory,
+        )
+
+        primary = mock.MagicMock()
+        spec = mock.MagicMock()
+
+        default_tier = SecondaryTierFactory.create_secondary_tier(
+            {"type": "example"},
+            primary,
+            spec,
+        )
+        self.assertEqual(
+            default_tier.instance_id,
+            "example",
+        )
+
+        explicit_tier = SecondaryTierFactory.create_secondary_tier(
+            {"type": "example"},
+            primary,
+            spec,
+            instance_id="example:3",
+        )
+        self.assertEqual(
+            explicit_tier.instance_id,
+            "example:3",
+        )
 
 
 if __name__ == "__main__":

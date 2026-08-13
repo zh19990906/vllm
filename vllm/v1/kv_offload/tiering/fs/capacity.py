@@ -81,6 +81,8 @@ class CapacitySnapshot:
     oversized_skip_count: int
     capacity_skip_count: int
     eviction_failure_count: int
+    eviction_count: int
+    evicted_bytes: int
 
 
 class FileSystemCapacityManager:
@@ -129,6 +131,8 @@ class FileSystemCapacityManager:
         self._oversized_skip_count = 0
         self._capacity_skip_count = 0
         self._eviction_failure_count = 0
+        self._eviction_count = 0
+        self._evicted_bytes = 0
 
         try:
             self._acquire_namespace_lock()
@@ -163,6 +167,8 @@ class FileSystemCapacityManager:
                 oversized_skip_count=self._oversized_skip_count,
                 capacity_skip_count=self._capacity_skip_count,
                 eviction_failure_count=self._eviction_failure_count,
+                eviction_count=self._eviction_count,
+                evicted_bytes=self._evicted_bytes,
             )
 
     def contains(self, path: str) -> bool:
@@ -581,6 +587,8 @@ class FileSystemCapacityManager:
 
                 del self._entries[victim_path]
                 self._accounted_bytes -= victim_size
+                self._eviction_count += 1
+                self._evicted_bytes += victim_size
                 self._assert_invariants_locked()
 
     def _warn_if_physical_space_below_logical_limit(self) -> None:
@@ -755,6 +763,8 @@ class FileSystemCapacityManager:
                 Path(victim_path),
                 operation="restart capacity shrink eviction",
             )
+            self._eviction_count += 1
+            self._evicted_bytes += victim_size
             total -= victim_size
             first_retained += 1
 

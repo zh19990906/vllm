@@ -20,7 +20,7 @@ import json
 import os
 import threading
 from collections.abc import Collection, Iterable
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from typing_extensions import override
 
@@ -29,7 +29,10 @@ from vllm.logger import init_logger
 from vllm.v1.kv_offload.base import (
     Locality,
     LookupResult,
+    OffloadingCounterMetadata,
     OffloadingEvent,
+    OffloadingGaugeMetadata,
+    OffloadingMetricMetadata,
     OffloadKey,
     ReqContext,
 )
@@ -55,9 +58,22 @@ from vllm.v1.kv_offload.tiering.fs.io import (
 from vllm.v1.kv_offload.tiering.fs.thread_pool import DualQueueThreadPool
 
 if TYPE_CHECKING:
+    from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (
+        OffloadingConnectorStats,
+    )
     from vllm.v1.kv_offload.base import OffloadingSpec
 
 logger = init_logger(__name__)
+
+
+class _FileSystemMetrics:
+    CAPACITY_BYTES = "vllm:kv_offload_fs_capacity_bytes"
+    ACCOUNTED_BYTES = "vllm:kv_offload_fs_accounted_bytes"
+    RESERVED_BYTES = "vllm:kv_offload_fs_reserved_bytes"
+    EVICTIONS = "vllm:kv_offload_fs_evictions"
+    EVICTED_BYTES = "vllm:kv_offload_fs_evicted_bytes"
+    CAPACITY_SKIPS = "vllm:kv_offload_fs_capacity_skips"
+    EVICTION_FAILURES = "vllm:kv_offload_fs_eviction_failures"
 
 
 class _StoreJobRecord:
@@ -202,6 +218,9 @@ class FileSystemTierManager(SecondaryTierManager):
             max_bytes=self.max_bytes,
             expected_file_size=self._block_size,
         )
+        # Capacity counters are cumulative. Start from zero so restart
+        # shrink evictions are visible on the first stats poll.
+        self._last_capacity_counters = (0, 0, 0, 0, 0)
 
         self._pool = DualQueueThreadPool(
             n_read_threads,
@@ -391,6 +410,144 @@ class FileSystemTierManager(SecondaryTierManager):
     @override
     def on_schedule_end(self, context: ScheduleEndContext) -> None:
         self._lookup_manager.flush()
+
+    @classmethod
+    @override
+    def build_metric_definitions(
+        cls,
+        extra_config: dict[str, Any],
+    ) -> dict[str, OffloadingMetricMetadata]:
+        return {
+            _FileSystemMetrics.CAPACITY_BYTES: OffloadingGaugeMetadata(
+                documentation=(
+                    "Configured logical hard capacity of a filesystem "
+                    "KV-cache tier, in bytes."
+                ),
+                labelnames=("tier",),
+            ),
+            _FileSystemMetrics.ACCOUNTED_BYTES: OffloadingGaugeMetadata(
+                documentation=(
+                    "Committed filesystem KV-cache bytes currently "
+                    "accounted against the logical capacity."
+                ),
+                labelnames=("tier",),
+            ),
+            _FileSystemMetrics.RESERVED_BYTES: OffloadingGaugeMetadata(
+                documentation=(
+                    "In-flight or conservatively retained filesystem "
+                    "KV-cache bytes reserved against the logical capacity."
+                ),
+                labelnames=("tier",),
+            ),
+            _FileSystemMetrics.EVICTIONS: OffloadingCounterMetadata(
+                documentation=(
+                    "Number of filesystem KV-cache entries evicted to "
+                    "enforce the logical capacity."
+                ),
+                labelnames=("tier",),
+            ),
+            _FileSystemMetrics.EVICTED_BYTES: OffloadingCounterMetadata(
+                documentation=(
+                    "Filesystem KV-cache bytes evicted to enforce the "
+                    "logical capacity."
+                ),
+                labelnames=("tier",),
+            ),
+            _FileSystemMetrics.CAPACITY_SKIPS: OffloadingCounterMetadata(
+                documentation=(
+                    "Number of filesystem KV-cache writes skipped by "
+                    "logical capacity admission."
+                ),
+                labelnames=("tier", "reason"),
+            ),
+            _FileSystemMetrics.EVICTION_FAILURES: OffloadingCounterMetadata(
+                documentation=(
+                    "Number of filesystem KV-cache eviction unlink "
+                    "failures."
+                ),
+                labelnames=("tier",),
+            ),
+        }
+
+    @override
+    def get_stats(self) -> "OffloadingConnectorStats":
+        from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (
+            OffloadingConnectorStats,
+        )
+
+        snapshot = self._capacity.snapshot()
+        stats = OffloadingConnectorStats()
+        tier_label = (self.instance_id,)
+
+        stats.set_gauge(
+            _FileSystemMetrics.CAPACITY_BYTES,
+            snapshot.max_bytes,
+            tier_label,
+        )
+        stats.set_gauge(
+            _FileSystemMetrics.ACCOUNTED_BYTES,
+            snapshot.accounted_bytes,
+            tier_label,
+        )
+        stats.set_gauge(
+            _FileSystemMetrics.RESERVED_BYTES,
+            snapshot.reserved_bytes,
+            tier_label,
+        )
+
+        current_counters = (
+            snapshot.eviction_count,
+            snapshot.evicted_bytes,
+            snapshot.oversized_skip_count,
+            snapshot.capacity_skip_count,
+            snapshot.eviction_failure_count,
+        )
+        previous_counters = self._last_capacity_counters
+
+        deltas = tuple(
+            max(0, current - previous)
+            for current, previous in zip(
+                current_counters,
+                previous_counters,
+            )
+        )
+
+        if deltas[0] > 0:
+            stats.increase_counter(
+                _FileSystemMetrics.EVICTIONS,
+                deltas[0],
+                tier_label,
+            )
+        if deltas[1] > 0:
+            stats.increase_counter(
+                _FileSystemMetrics.EVICTED_BYTES,
+                deltas[1],
+                tier_label,
+            )
+        if deltas[2] > 0:
+            stats.increase_counter(
+                _FileSystemMetrics.CAPACITY_SKIPS,
+                deltas[2],
+                (self.instance_id, "oversized"),
+            )
+        if deltas[3] > 0:
+            stats.increase_counter(
+                _FileSystemMetrics.CAPACITY_SKIPS,
+                deltas[3],
+                (
+                    self.instance_id,
+                    "no_evictable_capacity",
+                ),
+            )
+        if deltas[4] > 0:
+            stats.increase_counter(
+                _FileSystemMetrics.EVICTION_FAILURES,
+                deltas[4],
+                tier_label,
+            )
+
+        self._last_capacity_counters = current_counters
+        return stats
 
     @override
     def shutdown(self) -> None:

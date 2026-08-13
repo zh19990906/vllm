@@ -242,7 +242,10 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
                 try:
                     runtime_tier_config = self._runtime_tier_config(tier_config)
                     tier = SecondaryTierFactory.create_secondary_tier(
-                        runtime_tier_config, primary_kv_view, self
+                        runtime_tier_config,
+                        primary_kv_view,
+                        self,
+                        instance_id=f"{runtime_tier_config['type']}:{i}",
                     )
                     secondary_tiers.append(tier)
                     logger.info(
