@@ -1,4 +1,4 @@
-name: issue31 publication staging
+name: Issue31 CI-fix staged publisher
 
 on:
   push:
@@ -10,88 +10,159 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout staging branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
-      - name: Rebuild exact verified patch series and publish
+
+      - name: Set up Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: '3.12'
+
+      - name: Install pre-commit
+        run: python -m pip install pre-commit
+
+      - name: Reproduce and publish local CI-fix commit exactly
         shell: bash
         run: |
           set -euo pipefail
-          cat .issue31-upload/*.b64 | tr -d '\n' | base64 -d > /tmp/issue31.mbox.gz
-          echo "a42a01684d89ff41ba4298e14e7de99133e31fb6fd1d13223f3d3cc012e98f91  /tmp/issue31.mbox.gz" | sha256sum -c -
-          gzip -dc /tmp/issue31.mbox.gz > /tmp/issue31.mbox
-          git fetch origin agent/issue31-fs-hard-capacity
-          git checkout -B issue31-publish origin/agent/issue31-fs-hard-capacity
-          test "$(git rev-parse HEAD)" = "eea0ff4b16711693b6f9945a4a808916990442ee"
-          git config user.name "Your Name"
-          git config user.email "you@example.com"
-          git config commit.gpgsign false
-          rm -rf /tmp/issue31-patches
-          mkdir -p /tmp/issue31-patches
-          count="$(git mailsplit -o/tmp/issue31-patches /tmp/issue31.mbox)"
-          test "$count" = "10"
-          mapfile -t patches < <(find /tmp/issue31-patches -maxdepth 1 -type f -printf '%p\n' | sort)
-          test "${#patches[@]}" = "10"
-          mapfile -t metadata <<'META'
-          29a6c33b904ebe8611599531abc3282d411f12de 1b8a0dba05ceb52a4755e5026e9fc810aabe1ee6 2026-08-12T18:04:40+08:00
-          7d145ad4996ba7d5d0b0eba8311b1634f05dc17a 84a3c70c8d51719b284bf22d09c78221e9b7b4ed 2026-08-12T18:16:06+08:00
-          928f0910f65bd77f52f10e9d3a7c1f5829f077b2 703cc4977b242867c1dccf66ab26319632315cdd 2026-08-12T18:29:19+08:00
-          398b241df42985438ba9fc589941311293c34b0f bb270eafd876b22f77ccacc30b0cdecd92a044cc 2026-08-12T18:40:41+08:00
-          c1f04362380507053329b3c7b4dca90855676f83 f63a59d4ad7c3b00720dc16631eac1904067f044 2026-08-12T19:08:43+08:00
-          4d9f5e7b322d526ffc1f1d767552a594593c832f 075b6c58bdcf169d1d1db979e67cf85e97ad8b17 2026-08-13T09:12:34+08:00
-          62171570ed530d0372f30286babe6ed77e4084c7 a765168df1423f81bea4d74103c871024ca6259b 2026-08-13T09:35:12+08:00
-          600686dda713faea0eee1f31e53cecc8ad58b077 d3c0538e58ce0725888149af5788b292023166df 2026-08-13T09:45:48+08:00
-          949beed012b57281ae8eadd63cc8a674fb1975e0 2d0ab8136c5cad31dd5a769fbc1db388ec8092e1 2026-08-13T10:11:21+08:00
-          4740c6b2e3ee545b5940f9cffed7dca5b4a39945 b67ffecf03ac64c54b0badd288cecc0b94556ad5 2026-08-13T10:17:51+08:00
-          META
-          test "${#metadata[@]}" = "10"
-          for i in "${!patches[@]}"; do
-            read -r expected_sha expected_tree committer_date <<< "${metadata[$i]}"
-            GIT_COMMITTER_NAME="Your Name" GIT_COMMITTER_EMAIL="you@example.com" GIT_COMMITTER_DATE="$committer_date" git am "${patches[$i]}"
-            actual_sha="$(git rev-parse HEAD)"
-            actual_tree="$(git rev-parse HEAD^{tree})"
-            echo "replayed[$i]=$actual_sha tree=$actual_tree"
-            test "$actual_sha" = "$expected_sha"
-            test "$actual_tree" = "$expected_tree"
-          done
-          test "$(git rev-list --count eea0ff4b16711693b6f9945a4a808916990442ee..HEAD)" = "10"
-          test "$(git rev-parse HEAD)" = "4740c6b2e3ee545b5940f9cffed7dca5b4a39945"
-          while read -r expected path; do
-            actual="$(git rev-parse "HEAD:$path")"
-            test "$actual" = "$expected"
-          done <<'EOF'
-          b25018f0406341eff2263246140097a97b9b453b benchmarks/cache/config.py
-          661e00f4f779085c0c7c00eb9af4c41202e70943 benchmarks/cache/configs/example-397b.yaml
-          578a9c349736c38bc956087dca8cc4af49b04faf benchmarks/cache/configs/example-70b.yaml
-          626bd17abe6c8350e081117d7c96cd338fa7f1a2 benchmarks/cache/configs/example-7b.yaml
-          df80f6f6f90d261f97ec3815c21a99c706f67a8f benchmarks/cache/configs/issue15-14b-formal-fs.yaml
-          ce19f618cf88a34bc9a899832ddd399211a081f3 benchmarks/cache/configs/issue15-7b-load-sentinel-fs.yaml
-          b508c50759bd42e8aad584762db712188c147406 benchmarks/cache/configs/local-crossover.yaml
-          246f2b24ecb4c9d097c769716e35de2772a22b4f benchmarks/cache/issue31_fs_capacity_smoke.py
-          a84997e75c066252395067e70cb73474baa28e87 benchmarks/cache/scenarios.py
-          151c3118061b7def9ee1cba60d86bfe1609f3c77 benchmarks/cache/tests/conftest.py
-          87751f6f55500fc906e1ae205c404f6639013252 benchmarks/cache/tests/test_config.py
-          24411b5f6a8757880982e9ce97409bde043890fa benchmarks/cache/tests/test_issue31_fs_capacity_config.py
-          6620c0888812d1f64683a18bc57f7b2956bed734 benchmarks/cache/tests/test_issue31_fs_capacity_smoke.py
-          a95bde6806f709031c3a8ef9ffa0533aff119628 benchmarks/cache/tests/test_scenarios.py
-          4f2f0c7bb94a77710c9da9632de47a4671b56d72 docs/engineering/CURRENT_STATE.md
-          e10e144b29dc77f63423fb3426fa6644cf4d5a52 docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.json
-          23059b9f4a7ed27d705b3619ebaa1a93f248a15e docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md
-          b93b70921654f516de3d52d0e34ad55b3533d6bb tests/v1/kv_connector/unit/test_offloading_connector.py
-          a1261414d25e62e575a7d217501e05c27a44132c tests/v1/kv_offload/tiering/test_factory.py
-          10cf5ca643a9ff356b8284387ff050565426089e tests/v1/kv_offload/tiering/test_fs_capacity.py
-          8585c4bcc35a980c2b6b747e03940fb3ae1ccfac tests/v1/kv_offload/tiering/test_fs_capacity_restart.py
-          17887273187cf3c8113f1a4c10a8b8902fcd7810 tests/v1/kv_offload/tiering/test_fs_tier.py
-          00d92c02c8c13f057fda62a87e02935b5c09bcba tests/v1/kv_offload/tiering/test_shadow_cost_spec.py
-          175be8a0f277a4914bb63f36c2e75313b6f86d8a tests/v1/kv_offload/tiering/test_shadow_cost_tier_config.py
-          18246c257755804e7eada5afbb4215f6fa7f04a8 vllm/v1/kv_offload/file_mapper.py
-          4ce7fb3c821ba7aa4163388ccd3d2e83a54e31a1 vllm/v1/kv_offload/tiering/base.py
-          eaf828239bc4e5d94d509a1bfaa2dcac6f453327 vllm/v1/kv_offload/tiering/factory.py
-          32d85a45a278d4f675ef68bdf4b0c54e4bcd845a vllm/v1/kv_offload/tiering/fs/capacity.py
-          45b7105e20e9328ceddb3ec128e79792310bd0e3 vllm/v1/kv_offload/tiering/fs/io.py
-          3118a007f7909faec13617c64701e8bb16f527e7 vllm/v1/kv_offload/tiering/fs/manager.py
-          b0bcb3703f5bad7ae71d826609f08a9b9fbd0293 vllm/v1/kv_offload/tiering/spec.py
-          EOF
-          git push origin HEAD:refs/heads/agent/issue31-fs-hard-capacity
+
+          TARGET='agent/issue31-fs-hard-capacity'
+          PARENT='4740c6b2e3ee545b5940f9cffed7dca5b4a39945'
+          EXPECTED_TREE='be44a5369d014597cbfbc9048e12376a6bb6f2e2'
+          EXPECTED_COMMIT='2752b4950f0f30eedbb7f6bb3b60a83512a012c4'
+
+          remote_head="$(git ls-remote origin "refs/heads/${TARGET}" | awk '{print $1}')"
+          test "${remote_head}" = "${PARENT}"
+
+          git fetch origin "${TARGET}"
+          git checkout --detach "${PARENT}"
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(
+                      f"{path}: expected exact block once, found {count}"
+                  )
+              path.write_text(text.replace(old, new, 1))
+
+          config = Path(
+              "benchmarks/cache/tests/test_issue31_fs_capacity_config.py"
+          )
+          text = config.read_text()
+          header = (
+              "# SPDX-License-Identifier: Apache-2.0\n"
+              "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project\n"
+              "\n"
+          )
+          if not text.startswith("# SPDX-License-Identifier:"):
+              config.write_text(header + text)
+
+          replace_once(
+              config,
+              '''        for value in (None, 0, -1, True, 4096.0, "4096"):\n            with self.subTest(value=value):\n                with self.assertRaises(ValidationError):\n                    FilesystemCacheConfig(\n                        enabled=True,\n                        root_dir=Path("/tmp/cache"),\n                        max_bytes=value,\n                    )\n''',
+              '''        for value in (None, 0, -1, True, 4096.0, "4096"):\n            with self.subTest(value=value), self.assertRaises(ValidationError):\n                FilesystemCacheConfig(\n                    enabled=True,\n                    root_dir=Path("/tmp/cache"),\n                    max_bytes=value,\n                )\n''',
+          )
+
+          capacity = Path("vllm/v1/kv_offload/tiering/fs/capacity.py")
+          replace_once(capacity, "import re\n", "import regex as re\n")
+
+          tests = Path("tests/v1/kv_offload/tiering/test_fs_capacity.py")
+          replace_once(
+              tests,
+              '''        order = []\n\n        manager = object.__new__(fs_manager.FileSystemTierManager)\n''',
+              '''        order: list[str | tuple[str, bool]] = []\n\n        manager = object.__new__(fs_manager.FileSystemTierManager)\n''',
+          )
+
+          replace_once(
+              tests,
+              '''        with mock.patch.object(\n            fs_io.os,\n            "open",\n            side_effect=FileNotFoundError("injected read failure"),\n        ):\n            with mock.patch.object(fs_io.os, "remove") as remove:\n                with self.assertRaises(FileNotFoundError):\n                    fs_io.load_block(\n                        str(final_path),\n                        memoryview(target),\n                        0,\n                        4,\n                    )\n''',
+              '''        with (\n            mock.patch.object(\n                fs_io.os,\n                "open",\n                side_effect=FileNotFoundError("injected read failure"),\n            ),\n            mock.patch.object(fs_io.os, "remove") as remove,\n            self.assertRaises(FileNotFoundError),\n        ):\n            fs_io.load_block(\n                str(final_path),\n                memoryview(target),\n                0,\n                4,\n            )\n''',
+          )
+
+          replace_once(
+              tests,
+              '''        with mock.patch.object(\n            fs_io.os,\n            "open",\n            side_effect=fake_open,\n        ):\n            with mock.patch.object(\n                fs_io.os,\n                "write",\n                return_value=4,\n            ):\n                with mock.patch.object(fs_io.os, "close"):\n                    with mock.patch.object(fs_io.os, "replace") as replace:\n                        with mock.patch.object(\n                            fs_io,\n                            "_ensure_dirs",\n                        ) as ensure_dirs:\n                            with mock.patch.object(\n                                fs_io.os.path,\n                                "exists",\n                                side_effect=AssertionError(\n                                    "raw store must not check "\n                                    "destination existence"\n                                ),\n                            ):\n                                fs_io.store_block(\n                                    str(final_path),\n                                    str(temp_path),\n                                    memoryview(payload),\n                                    0,\n                                    4,\n                                )\n''',
+              '''        with (\n            mock.patch.object(\n                fs_io.os,\n                "open",\n                side_effect=fake_open,\n            ),\n            mock.patch.object(\n                fs_io.os,\n                "write",\n                return_value=4,\n            ),\n            mock.patch.object(fs_io.os, "close"),\n            mock.patch.object(fs_io.os, "replace") as replace,\n            mock.patch.object(\n                fs_io,\n                "_ensure_dirs",\n            ) as ensure_dirs,\n            mock.patch.object(\n                fs_io.os.path,\n                "exists",\n                side_effect=AssertionError(\n                    "raw store must not check "\n                    "destination existence"\n                ),\n            ),\n        ):\n            fs_io.store_block(\n                str(final_path),\n                str(temp_path),\n                memoryview(payload),\n                0,\n                4,\n            )\n''',
+          )
+
+          replace_once(
+              tests,
+              '''        with mock.patch.object(fs_io.os, "open", return_value=17):\n            with mock.patch.object(\n                fs_io.os,\n                "write",\n                side_effect=OSError("injected write failure"),\n            ):\n                with mock.patch.object(fs_io.os, "close"):\n                    with mock.patch.object(fs_io.os, "remove") as remove:\n                        with self.assertRaisesRegex(\n                            OSError,\n                            "injected write failure",\n                        ):\n                            fs_io.store_block(\n                                str(final_path),\n                                str(temp_path),\n                                memoryview(payload),\n                                0,\n                                4,\n                            )\n''',
+              '''        with (\n            mock.patch.object(fs_io.os, "open", return_value=17),\n            mock.patch.object(\n                fs_io.os,\n                "write",\n                side_effect=OSError("injected write failure"),\n            ),\n            mock.patch.object(fs_io.os, "close"),\n            mock.patch.object(fs_io.os, "remove") as remove,\n            self.assertRaisesRegex(\n                OSError,\n                "injected write failure",\n            ),\n        ):\n            fs_io.store_block(\n                str(final_path),\n                str(temp_path),\n                memoryview(payload),\n                0,\n                4,\n            )\n''',
+          )
+
+          print("manual_ci_gate_fixes=OK")
+          PY
+
+          files=(
+            benchmarks/cache/config.py
+            benchmarks/cache/issue31_fs_capacity_smoke.py
+            benchmarks/cache/tests/test_issue31_fs_capacity_config.py
+            benchmarks/cache/tests/test_issue31_fs_capacity_smoke.py
+            docs/superpowers/plans/2026-08-12-issue31-filesystem-kv-cache-hard-capacity.md
+            docs/superpowers/specs/2026-08-12-filesystem-kv-cache-hard-capacity-design.md
+            tests/v1/kv_offload/tiering/test_fs_capacity.py
+            tests/v1/kv_offload/tiering/test_fs_capacity_restart.py
+            tests/v1/kv_offload/tiering/test_fs_tier.py
+            tests/v1/kv_offload/tiering/test_shadow_cost_spec.py
+            vllm/v1/kv_offload/tiering/fs/capacity.py
+            vllm/v1/kv_offload/tiering/fs/io.py
+            vllm/v1/kv_offload/tiering/fs/manager.py
+          )
+
+          run_modifying_hook() {
+            local hook="$1"
+            set +e
+            pre-commit run "${hook}" --files "${files[@]}" --hook-stage manual
+            local rc=$?
+            set -e
+            if [[ "${rc}" -ne 0 && "${rc}" -ne 1 ]]; then
+              echo "${hook}: unexpected first-pass exit ${rc}" >&2
+              return "${rc}"
+            fi
+          }
+
+          run_modifying_hook ruff-check
+          run_modifying_hook ruff-format
+          run_modifying_hook markdownlint-cli2
+          pre-commit run check-spdx-header --files "${files[@]}" --hook-stage manual
+          pre-commit run check-forbidden-imports --files "${files[@]}" --hook-stage manual
+
+          pre-commit run ruff-check --files "${files[@]}" --hook-stage manual
+          pre-commit run ruff-format --files "${files[@]}" --hook-stage manual
+          pre-commit run markdownlint-cli2 --files "${files[@]}" --hook-stage manual
+          pre-commit run check-spdx-header --files "${files[@]}" --hook-stage manual
+          pre-commit run check-forbidden-imports --files "${files[@]}" --hook-stage manual
+
+          printf '%s\n' "${files[@]}" | LC_ALL=C sort > /tmp/expected-files.txt
+          git diff --name-only | LC_ALL=C sort > /tmp/actual-files.txt
+          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
+
+          git add -- "${files[@]}"
+          git diff --cached --check
+
+          tree="$(git write-tree)"
+          echo "reproduced_tree=${tree}"
+          test "${tree}" = "${EXPECTED_TREE}"
+
+          export GIT_AUTHOR_NAME='Your Name'
+          export GIT_AUTHOR_EMAIL='you@example.com'
+          export GIT_AUTHOR_DATE='2026-08-13T16:13:56+08:00'
+          export GIT_COMMITTER_NAME='Your Name'
+          export GIT_COMMITTER_EMAIL='you@example.com'
+          export GIT_COMMITTER_DATE='2026-08-13T16:13:56+08:00'
+
+          commit="$(printf '%s\n' 'fix: satisfy issue 31 CI quality gates' | git commit-tree "${tree}" -p "${PARENT}")"
+          echo "reproduced_commit=${commit}"
+          test "${commit}" = "${EXPECTED_COMMIT}"
+
+          git push origin "${commit}:refs/heads/${TARGET}"
+          echo 'issue31_ci_fix_publish=OK'
