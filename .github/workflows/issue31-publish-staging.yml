@@ -1,4 +1,4 @@
-name: Issue31 CI-fix staged publisher
+name: issue31 publish staging
 
 on:
   push:
@@ -10,159 +10,218 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout staging branch
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
-        with:
-          python-version: '3.12'
-
-      - name: Install pre-commit
-        run: python -m pip install pre-commit
-
-      - name: Reproduce and publish local CI-fix commit exactly
+      - name: Reproduce and publish docs-only commit
         shell: bash
         run: |
           set -euo pipefail
+          BASE=2752b4950f0f30eedbb7f6bb3b60a83512a012c4
+          EXPECTED_TREE=9927c0f9204a60a49212fc81318ce9f69d63f879
+          EXPECTED_COMMIT=66fc997ed55db5cb99fa12dcb5213a3d57f34ff9
+          TARGET=agent/issue31-fs-hard-capacity
 
-          TARGET='agent/issue31-fs-hard-capacity'
-          PARENT='4740c6b2e3ee545b5940f9cffed7dca5b4a39945'
-          EXPECTED_TREE='be44a5369d014597cbfbc9048e12376a6bb6f2e2'
-          EXPECTED_COMMIT='2752b4950f0f30eedbb7f6bb3b60a83512a012c4'
-
-          remote_head="$(git ls-remote origin "refs/heads/${TARGET}" | awk '{print $1}')"
-          test "${remote_head}" = "${PARENT}"
-
-          git fetch origin "${TARGET}"
-          git checkout --detach "${PARENT}"
+          git fetch origin "$TARGET"
+          test "$(git rev-parse FETCH_HEAD)" = "$BASE"
+          git checkout --detach "$BASE"
 
           python - <<'PY'
           from pathlib import Path
+          import json
 
-          def replace_once(path: Path, old: str, new: str) -> None:
-              text = path.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise RuntimeError(
-                      f"{path}: expected exact block once, found {count}"
-                  )
-              path.write_text(text.replace(old, new, 1))
+          DELIVERY = "2752b4950f0f30eedbb7f6bb3b60a83512a012c4"
+          RUN_ID = 31682582711
 
-          config = Path(
-              "benchmarks/cache/tests/test_issue31_fs_capacity_config.py"
+          p = Path("docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.json")
+          data = json.loads(p.read_text())
+          data["ci"] = {
+              "authoritative": True,
+              "status": "implementation_head_passed_docs_refresh_pending",
+              "workflow": "pre-commit",
+              "run_id": RUN_ID,
+              "run_number": 202,
+              "latest_attempt_conclusion": "success",
+              "note": (
+                  "authoritative pre-commit run #202 passed on implementation head "
+                  f"{DELIVERY}; this documentation-only refresh requires a fresh CI run "
+                  "after publication before merge"
+              ),
+          }
+          data["github"].update({
+              "draft_pr_status": "open",
+              "draft_pr_number": 33,
+              "implementation_branch_head": DELIVERY,
+              "local_implementation_not_yet_published": False,
+          })
+          data["delivery_head_sha"] = DELIVERY
+          data["status"] = "implementation_ci_passed_docs_refresh_pending"
+          data["focused_verification"]["pytest"] = {
+              "available_in_pod": False,
+              "status": "not_run_no_pytest_ci_job_observed_for_pr33",
+          }
+          p.write_text(json.dumps(data, indent=2) + "\n")
+
+          p = Path("docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md")
+          text = p.read_text()
+          def ro(old, new):
+              global text
+              if text.count(old) != 1:
+                  raise SystemExit(f"validation replace mismatch: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+          ro(
+              "Issue #31 is **locally validated with authoritative GitHub CI still pending**.",
+              "Issue #31 is **locally validated and authoritative GitHub pre-commit CI passed on implementation head `2752b4950f0f30eedbb7f6bb3b60a83512a012c4`; this documentation-only refresh requires a fresh CI run after publication before merge**.",
           )
-          text = config.read_text()
-          header = (
-              "# SPDX-License-Identifier: Apache-2.0\n"
-              "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project\n"
-              "\n"
+          ro(
+              """The implementation has not yet been published from the Pod-local implementation head
+to the GitHub Issue #31 branch, no Draft PR exists yet, and authoritative GitHub CI
+has not run.""",
+              """The implementation is published as Draft PR #33 at
+`agent/issue31-fs-hard-capacity@2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+attempt. The PR remains Draft and has not been merged.""",
           )
-          if not text.startswith("# SPDX-License-Identifier:"):
-              config.write_text(header + text)
-
-          replace_once(
-              config,
-              '''        for value in (None, 0, -1, True, 4096.0, "4096"):\n            with self.subTest(value=value):\n                with self.assertRaises(ValidationError):\n                    FilesystemCacheConfig(\n                        enabled=True,\n                        root_dir=Path("/tmp/cache"),\n                        max_bytes=value,\n                    )\n''',
-              '''        for value in (None, 0, -1, True, 4096.0, "4096"):\n            with self.subTest(value=value), self.assertRaises(ValidationError):\n                FilesystemCacheConfig(\n                    enabled=True,\n                    root_dir=Path("/tmp/cache"),\n                    max_bytes=value,\n                )\n''',
+          ro(
+              """- GitHub branch `agent/issue31-fs-hard-capacity` still pointed to
+  `eea0ff4b16711693b6f9945a4a808916990442ee` before publication.""",
+              """- GitHub branch `agent/issue31-fs-hard-capacity` now points to
+  `2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+- Draft PR #33 is open and remains Draft.
+- Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+  attempt.""",
           )
-
-          capacity = Path("vllm/v1/kv_offload/tiering/fs/capacity.py")
-          replace_once(capacity, "import re\n", "import regex as re\n")
-
-          tests = Path("tests/v1/kv_offload/tiering/test_fs_capacity.py")
-          replace_once(
-              tests,
-              '''        order = []\n\n        manager = object.__new__(fs_manager.FileSystemTierManager)\n''',
-              '''        order: list[str | tuple[str, bool]] = []\n\n        manager = object.__new__(fs_manager.FileSystemTierManager)\n''',
+          ro(
+              """- Pytest is unavailable in the Pod; pytest-only coverage remains an authoritative
+  GitHub-CI gate.""",
+              """- Pytest is unavailable in the Pod; no pytest CI job was observed for PR #33
+  at the current delivery head. Focused Issue #31 unittest coverage is recorded
+  below.""",
           )
-
-          replace_once(
-              tests,
-              '''        with mock.patch.object(\n            fs_io.os,\n            "open",\n            side_effect=FileNotFoundError("injected read failure"),\n        ):\n            with mock.patch.object(fs_io.os, "remove") as remove:\n                with self.assertRaises(FileNotFoundError):\n                    fs_io.load_block(\n                        str(final_path),\n                        memoryview(target),\n                        0,\n                        4,\n                    )\n''',
-              '''        with (\n            mock.patch.object(\n                fs_io.os,\n                "open",\n                side_effect=FileNotFoundError("injected read failure"),\n            ),\n            mock.patch.object(fs_io.os, "remove") as remove,\n            self.assertRaises(FileNotFoundError),\n        ):\n            fs_io.load_block(\n                str(final_path),\n                memoryview(target),\n                0,\n                4,\n            )\n''',
+          ro("| Pod pytest | unavailable; deferred to GitHub CI |", "| Pod pytest | unavailable; no pytest CI job observed on PR #33 |")
+          ro(
+              """covered locally plus the existing inference architecture; authoritative repository CI is
+still required before merge.""",
+              """covered locally plus the existing inference architecture. Authoritative GitHub
+pre-commit CI has passed; final review and explicit user merge authorization are
+still required.""",
           )
-
-          replace_once(
-              tests,
-              '''        with mock.patch.object(\n            fs_io.os,\n            "open",\n            side_effect=fake_open,\n        ):\n            with mock.patch.object(\n                fs_io.os,\n                "write",\n                return_value=4,\n            ):\n                with mock.patch.object(fs_io.os, "close"):\n                    with mock.patch.object(fs_io.os, "replace") as replace:\n                        with mock.patch.object(\n                            fs_io,\n                            "_ensure_dirs",\n                        ) as ensure_dirs:\n                            with mock.patch.object(\n                                fs_io.os.path,\n                                "exists",\n                                side_effect=AssertionError(\n                                    "raw store must not check "\n                                    "destination existence"\n                                ),\n                            ):\n                                fs_io.store_block(\n                                    str(final_path),\n                                    str(temp_path),\n                                    memoryview(payload),\n                                    0,\n                                    4,\n                                )\n''',
-              '''        with (\n            mock.patch.object(\n                fs_io.os,\n                "open",\n                side_effect=fake_open,\n            ),\n            mock.patch.object(\n                fs_io.os,\n                "write",\n                return_value=4,\n            ),\n            mock.patch.object(fs_io.os, "close"),\n            mock.patch.object(fs_io.os, "replace") as replace,\n            mock.patch.object(\n                fs_io,\n                "_ensure_dirs",\n            ) as ensure_dirs,\n            mock.patch.object(\n                fs_io.os.path,\n                "exists",\n                side_effect=AssertionError(\n                    "raw store must not check "\n                    "destination existence"\n                ),\n            ),\n        ):\n            fs_io.store_block(\n                str(final_path),\n                str(temp_path),\n                memoryview(payload),\n                0,\n                4,\n            )\n''',
+          ro(
+              """**Issue #16 remains blocked until Issue #31 is published, passes authoritative GitHub CI,
+is merged, and is closed.**""",
+              """**Issue #16 remains blocked until Issue #31 is merged and closed. Publication and
+authoritative GitHub pre-commit CI are complete.**""",
           )
+          marker = "## CI and merge status\n"
+          prefix = text.split(marker, 1)[0]
+          text = prefix + """## CI and merge status
 
-          replace_once(
-              tests,
-              '''        with mock.patch.object(fs_io.os, "open", return_value=17):\n            with mock.patch.object(\n                fs_io.os,\n                "write",\n                side_effect=OSError("injected write failure"),\n            ):\n                with mock.patch.object(fs_io.os, "close"):\n                    with mock.patch.object(fs_io.os, "remove") as remove:\n                        with self.assertRaisesRegex(\n                            OSError,\n                            "injected write failure",\n                        ):\n                            fs_io.store_block(\n                                str(final_path),\n                                str(temp_path),\n                                memoryview(payload),\n                                0,\n                                4,\n                            )\n''',
-              '''        with (\n            mock.patch.object(fs_io.os, "open", return_value=17),\n            mock.patch.object(\n                fs_io.os,\n                "write",\n                side_effect=OSError("injected write failure"),\n            ),\n            mock.patch.object(fs_io.os, "close"),\n            mock.patch.object(fs_io.os, "remove") as remove,\n            self.assertRaisesRegex(\n                OSError,\n                "injected write failure",\n            ),\n        ):\n            fs_io.store_block(\n                str(final_path),\n                str(temp_path),\n                memoryview(payload),\n                0,\n                4,\n            )\n''',
+Local/delivery status: `implementation_ci_passed_docs_refresh_pending`.
+
+Draft PR #33 is open at delivery head
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+
+Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+attempt on implementation head
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. An earlier attempt exposed
+repository-wide ShellCheck findings in files outside the Issue #31 diff;
+rerunning the same head passed. The locally investigated ShellCheck wrapper
+change is not part of Issue #31.
+
+This documentation-only refresh will create a newer delivery head. That new
+head must receive a fresh authoritative CI result before merge.
+
+Pytest is unavailable in the Pod, and no pytest CI job was observed for the
+current PR head. The recorded focused unittest, smoke-contract, compile, mypy,
+repository-policy, and filesystem-smoke evidence therefore remains the relevant
+Issue #31 validation evidence.
+
+The PR remains Draft. Green CI is not merge authorization. The next delivery
+stage is final review followed by explicit user authorization before any merge.
+Issue #16 remains blocked until Issue #31 is merged and closed.
+"""
+          p.write_text(text)
+
+          p = Path("docs/engineering/CURRENT_STATE.md")
+          text = p.read_text()
+          def rs(old, new):
+              global text
+              if text.count(old) != 1:
+                  raise SystemExit(f"state replace mismatch: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+          rs(
+              """The implementation is locally validated at
+`949beed012b57281ae8eadd63cc8a674fb1975e0`, with formal filesystem evidence in:""",
+              """The formal filesystem validation was produced from implementation head
+`949beed012b57281ae8eadd63cc8a674fb1975e0`. The current delivery head is
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`, which retains that behavior plus
+repository quality-gate remediation. Formal filesystem evidence is recorded in:""",
           )
+          rs(
+              """The GitHub implementation branch has not yet been updated from its plan-only head and
+no Draft PR/authoritative CI result exists yet. Do not describe Issue #31 as merged or
+closed.""",
+              """GitHub branch `agent/issue31-fs-hard-capacity` now points to
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. Draft PR #33 is open, and
+authoritative GitHub pre-commit run #202 passed on its latest attempt. Do not
+describe Issue #31 as merged or closed.""",
+          )
+          rs(
+              """Issue #31 has completed local implementation and local filesystem validation. Remaining
+work is repository delivery and authoritative CI, not additional local feature expansion.""",
+              """Issue #31 has completed local implementation, local filesystem validation, repository
+publication, and authoritative GitHub pre-commit CI. Remaining work is final review
+and explicit merge authorization, not additional local feature expansion.""",
+          )
+          start = "## Current continuation record\n"
+          end = "## Important interpretation rules\n"
+          before, rest = text.split(start, 1)
+          _, after = rest.split(end, 1)
+          continuation = """## Current continuation record
 
-          print("manual_ci_gate_fixes=OK")
+Live GitHub `main` was observed at
+`c4d9fce61ec5a8eadc24dab8698eca7705d005bf`.
+
+Draft PR #33 targets `main` from
+`agent/issue31-fs-hard-capacity@2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+
+Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+attempt on implementation head
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. This documentation-only refresh
+will create a newer delivery head, which requires a fresh authoritative CI run
+after publication. The PR remains Draft and unmerged. Green CI is not merge
+authorization.
+
+Pytest is unavailable in the Pod, and no pytest CI job was observed for the
+current PR head. Focused Issue #31 unittest, smoke-contract, mypy, repository
+policy, compile, and formal real-filesystem evidence remain recorded in the
+validation artifact.
+
+The next step is final review. Merge requires explicit user authorization.
+Issue #16 remains blocked until Issue #31 is merged and closed.
+
+"""
+          p.write_text(before + continuation + end + after)
           PY
 
-          files=(
-            benchmarks/cache/config.py
-            benchmarks/cache/issue31_fs_capacity_smoke.py
-            benchmarks/cache/tests/test_issue31_fs_capacity_config.py
-            benchmarks/cache/tests/test_issue31_fs_capacity_smoke.py
-            docs/superpowers/plans/2026-08-12-issue31-filesystem-kv-cache-hard-capacity.md
-            docs/superpowers/specs/2026-08-12-filesystem-kv-cache-hard-capacity-design.md
-            tests/v1/kv_offload/tiering/test_fs_capacity.py
-            tests/v1/kv_offload/tiering/test_fs_capacity_restart.py
-            tests/v1/kv_offload/tiering/test_fs_tier.py
-            tests/v1/kv_offload/tiering/test_shadow_cost_spec.py
-            vllm/v1/kv_offload/tiering/fs/capacity.py
-            vllm/v1/kv_offload/tiering/fs/io.py
-            vllm/v1/kv_offload/tiering/fs/manager.py
-          )
-
-          run_modifying_hook() {
-            local hook="$1"
-            set +e
-            pre-commit run "${hook}" --files "${files[@]}" --hook-stage manual
-            local rc=$?
-            set -e
-            if [[ "${rc}" -ne 0 && "${rc}" -ne 1 ]]; then
-              echo "${hook}: unexpected first-pass exit ${rc}" >&2
-              return "${rc}"
-            fi
-          }
-
-          run_modifying_hook ruff-check
-          run_modifying_hook ruff-format
-          run_modifying_hook markdownlint-cli2
-          pre-commit run check-spdx-header --files "${files[@]}" --hook-stage manual
-          pre-commit run check-forbidden-imports --files "${files[@]}" --hook-stage manual
-
-          pre-commit run ruff-check --files "${files[@]}" --hook-stage manual
-          pre-commit run ruff-format --files "${files[@]}" --hook-stage manual
-          pre-commit run markdownlint-cli2 --files "${files[@]}" --hook-stage manual
-          pre-commit run check-spdx-header --files "${files[@]}" --hook-stage manual
-          pre-commit run check-forbidden-imports --files "${files[@]}" --hook-stage manual
-
-          printf '%s\n' "${files[@]}" | LC_ALL=C sort > /tmp/expected-files.txt
-          git diff --name-only | LC_ALL=C sort > /tmp/actual-files.txt
-          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
-
-          git add -- "${files[@]}"
+          git add docs/engineering/CURRENT_STATE.md \
+                  docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.json \
+                  docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md
           git diff --cached --check
-
-          tree="$(git write-tree)"
-          echo "reproduced_tree=${tree}"
-          test "${tree}" = "${EXPECTED_TREE}"
+          TREE=$(git write-tree)
+          echo "reproduced_tree=$TREE"
+          test "$TREE" = "$EXPECTED_TREE"
 
           export GIT_AUTHOR_NAME='Your Name'
           export GIT_AUTHOR_EMAIL='you@example.com'
-          export GIT_AUTHOR_DATE='2026-08-13T16:13:56+08:00'
+          export GIT_AUTHOR_DATE='2026-08-13T18:04:36+08:00'
           export GIT_COMMITTER_NAME='Your Name'
           export GIT_COMMITTER_EMAIL='you@example.com'
-          export GIT_COMMITTER_DATE='2026-08-13T16:13:56+08:00'
+          export GIT_COMMITTER_DATE='2026-08-13T18:04:36+08:00'
+          COMMIT=$(git commit-tree "$TREE" -p "$BASE" -m 'docs: refresh issue 31 delivery status')
+          echo "reproduced_commit=$COMMIT"
+          test "$COMMIT" = "$EXPECTED_COMMIT"
 
-          commit="$(printf '%s\n' 'fix: satisfy issue 31 CI quality gates' | git commit-tree "${tree}" -p "${PARENT}")"
-          echo "reproduced_commit=${commit}"
-          test "${commit}" = "${EXPECTED_COMMIT}"
-
-          git push origin "${commit}:refs/heads/${TARGET}"
-          echo 'issue31_ci_fix_publish=OK'
+          git push origin "$COMMIT:refs/heads/$TARGET"
