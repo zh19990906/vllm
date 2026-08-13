@@ -15,27 +15,49 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Rebuild verified patch series and publish
+      - name: Rebuild exact verified patch series and publish
         shell: bash
         run: |
           set -euo pipefail
-
           cat .issue31-upload/*.b64 | tr -d '\n' | base64 -d > /tmp/issue31.mbox.gz
           echo "a42a01684d89ff41ba4298e14e7de99133e31fb6fd1d13223f3d3cc012e98f91  /tmp/issue31.mbox.gz" | sha256sum -c -
           gzip -dc /tmp/issue31.mbox.gz > /tmp/issue31.mbox
-
           git fetch origin agent/issue31-fs-hard-capacity
           git checkout -B issue31-publish origin/agent/issue31-fs-hard-capacity
           test "$(git rev-parse HEAD)" = "eea0ff4b16711693b6f9945a4a808916990442ee"
-
           git config user.name "Your Name"
           git config user.email "you@example.com"
           git config commit.gpgsign false
-          git am --committer-date-is-author-date /tmp/issue31.mbox
-
+          rm -rf /tmp/issue31-patches
+          mkdir -p /tmp/issue31-patches
+          count="$(git mailsplit -o/tmp/issue31-patches /tmp/issue31.mbox)"
+          test "$count" = "10"
+          mapfile -t patches < <(find /tmp/issue31-patches -maxdepth 1 -type f -printf '%p\n' | sort)
+          test "${#patches[@]}" = "10"
+          mapfile -t metadata <<'META'
+          29a6c33b904ebe8611599531abc3282d411f12de 1b8a0dba05ceb52a4755e5026e9fc810aabe1ee6 2026-08-12T18:04:40+08:00
+          7d145ad4996ba7d5d0b0eba8311b1634f05dc17a 84a3c70c8d51719b284bf22d09c78221e9b7b4ed 2026-08-12T18:16:06+08:00
+          928f0910f65bd77f52f10e9d3a7c1f5829f077b2 703cc4977b242867c1dccf66ab26319632315cdd 2026-08-12T18:29:19+08:00
+          398b241df42985438ba9fc589941311293c34b0f bb270eafd876b22f77ccacc30b0cdecd92a044cc 2026-08-12T18:40:41+08:00
+          c1f04362380507053329b3c7b4dca90855676f83 f63a59d4ad7c3b00720dc16631eac1904067f044 2026-08-12T19:08:43+08:00
+          4d9f5e7b322d526ffc1f1d767552a594593c832f 075b6c58bdcf169d1d1db979e67cf85e97ad8b17 2026-08-13T09:12:34+08:00
+          62171570ed530d0372f30286babe6ed77e4084c7 a765168df1423f81bea4d74103c871024ca6259b 2026-08-13T09:35:12+08:00
+          600686dda713faea0eee1f31e53cecc8ad58b077 d3c0538e58ce0725888149af5788b292023166df 2026-08-13T09:45:48+08:00
+          949beed012b57281ae8eadd63cc8a674fb1975e0 2d0ab8136c5cad31dd5a769fbc1db388ec8092e1 2026-08-13T10:11:21+08:00
+          4740c6b2e3ee545b5940f9cffed7dca5b4a39945 b67ffecf03ac64c54b0badd288cecc0b94556ad5 2026-08-13T10:17:51+08:00
+          META
+          test "${#metadata[@]}" = "10"
+          for i in "${!patches[@]}"; do
+            read -r expected_sha expected_tree committer_date <<< "${metadata[$i]}"
+            GIT_COMMITTER_NAME="Your Name" GIT_COMMITTER_EMAIL="you@example.com" GIT_COMMITTER_DATE="$committer_date" git am "${patches[$i]}"
+            actual_sha="$(git rev-parse HEAD)"
+            actual_tree="$(git rev-parse HEAD^{tree})"
+            echo "replayed[$i]=$actual_sha tree=$actual_tree"
+            test "$actual_sha" = "$expected_sha"
+            test "$actual_tree" = "$expected_tree"
+          done
           test "$(git rev-list --count eea0ff4b16711693b6f9945a4a808916990442ee..HEAD)" = "10"
           test "$(git rev-parse HEAD)" = "4740c6b2e3ee545b5940f9cffed7dca5b4a39945"
-
           while read -r expected path; do
             actual="$(git rev-parse "HEAD:$path")"
             test "$actual" = "$expected"
@@ -72,5 +94,4 @@ jobs:
           3118a007f7909faec13617c64701e8bb16f527e7 vllm/v1/kv_offload/tiering/fs/manager.py
           b0bcb3703f5bad7ae71d826609f08a9b9fbd0293 vllm/v1/kv_offload/tiering/spec.py
           EOF
-
           git push origin HEAD:refs/heads/agent/issue31-fs-hard-capacity
