@@ -809,6 +809,150 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         )
         manager._capacity.abort_write.assert_not_called()
 
+    def test_bounded_lookup_uses_capacity_membership_only(self) -> None:
+        lookup = object.__new__(fs_manager.FsAsyncLookupManager)
+        tier = mock.MagicMock()
+        lookup._tier = tier
+
+        keys = [object(), object()]
+        paths = ["/cache/a.bin", "/cache/b.bin"]
+        tier.file_mapper.get_file_name.side_effect = paths
+        tier._capacity.contains_many.return_value = [True, False]
+
+        with mock.patch.object(
+            fs_manager.os.path,
+            "exists",
+            side_effect=AssertionError(
+                "bounded lookup must not use os.path.exists"
+            ),
+        ):
+            result = list(
+                lookup.batch_lookup(
+                    keys,
+                    mock.MagicMock(),
+                )
+            )
+
+        self.assertEqual(result, [True, False])
+        tier._capacity.contains_many.assert_called_once_with(paths)
+
+    def test_load_one_revalidates_pin_before_filesystem_io(self) -> None:
+        manager = object.__new__(
+            fs_manager.FileSystemTierManager
+        )
+        manager._capacity = mock.MagicMock()
+        manager._capacity.pin_for_read.return_value = None
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(
+            bytearray(b"abcdefgh")
+        )
+        final_path = str(managed_path(self.root))
+
+        with mock.patch.object(
+            fs_manager,
+            "load_block",
+        ) as load:
+            with self.assertRaisesRegex(
+                FileNotFoundError,
+                "no longer committed",
+            ):
+                manager._load_one(final_path, 0)
+
+        load.assert_not_called()
+        manager._capacity.pin_for_read.assert_called_once_with(
+            final_path
+        )
+
+    def test_load_one_releases_pin_after_success(self) -> None:
+        manager = object.__new__(
+            fs_manager.FileSystemTierManager
+        )
+        pin = object()
+        manager._capacity = mock.MagicMock()
+        manager._capacity.pin_for_read.return_value = pin
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(
+            bytearray(b"abcdefgh")
+        )
+        final_path = str(managed_path(self.root))
+
+        with mock.patch.object(
+            fs_manager,
+            "load_block",
+        ) as load:
+            manager._load_one(final_path, 0)
+
+        load.assert_called_once_with(
+            final_path,
+            manager._primary_kv_view,
+            0,
+            4,
+        )
+        manager._capacity.release_read.assert_called_once_with(pin)
+
+    def test_load_one_failure_invalidates_through_capacity(self) -> None:
+        manager = object.__new__(
+            fs_manager.FileSystemTierManager
+        )
+        pin = object()
+        manager._capacity = mock.MagicMock()
+        manager._capacity.pin_for_read.return_value = pin
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(
+            bytearray(b"abcdefgh")
+        )
+        final_path = str(managed_path(self.root))
+
+        with mock.patch.object(
+            fs_manager,
+            "load_block",
+            side_effect=OSError("injected read failure"),
+        ):
+            with self.assertRaisesRegex(
+                OSError,
+                "injected read failure",
+            ):
+                manager._load_one(final_path, 0)
+
+        manager._capacity.release_read.assert_called_once_with(
+            pin,
+            invalidate=True,
+        )
+
+    def test_touch_updates_capacity_lru_without_filesystem_metadata_io(
+        self,
+    ) -> None:
+        manager = object.__new__(
+            fs_manager.FileSystemTierManager
+        )
+        manager.file_mapper = mock.MagicMock()
+        manager._capacity = mock.MagicMock()
+
+        keys = [object(), object()]
+        paths = ["/cache/a.bin", "/cache/b.bin"]
+        manager.file_mapper.get_file_name.side_effect = paths
+
+        with mock.patch.object(
+            fs_manager.os,
+            "stat",
+            side_effect=AssertionError(
+                "touch must not stat filesystem entries"
+            ),
+        ):
+            with mock.patch.object(
+                fs_manager.os,
+                "utime",
+                side_effect=AssertionError(
+                    "touch must not mutate file mtime"
+                ),
+            ):
+                manager.touch(
+                    keys,
+                    mock.MagicMock(),
+                )
+
+        manager._capacity.touch.assert_called_once_with(paths)
+
 
 if __name__ == "__main__":
     unittest.main()

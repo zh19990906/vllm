@@ -510,18 +510,26 @@ def test_batch_lookup_c_extension(tmp_path):
         batch_lookup_C([all_exist[0], None])  # valid first, invalid mid-list
 
 
-@pytest.mark.parametrize("use_c_ext", [True, False])
-def test_batch_lookup_dispatch(fs_tier, monkeypatch, use_c_ext):
-    import vllm.v1.kv_offload.tiering.fs.manager as mgr_mod
-
-    if use_c_ext and not mgr_mod._HAS_BATCH_LOOKUP_C:
-        pytest.skip("fs_io_C extension not built")
-
-    monkeypatch.setattr(mgr_mod, "_HAS_BATCH_LOOKUP_C", use_c_ext)
-
+def test_batch_lookup_dispatch_uses_bounded_capacity_state(
+    fs_tier,
+    monkeypatch,
+):
     tier, _ = fs_tier
-    tier.submit_store(make_job(1, [key(1)], [0]))
-    assert all(r.success for r in drain(tier))
+
+    paths = [
+        tier.file_mapper.get_file_name(key(1)),
+        tier.file_mapper.get_file_name(key(2)),
+    ]
+
+    def bounded_contains_many(actual_paths):
+        assert actual_paths == paths
+        return [True, False]
+
+    monkeypatch.setattr(
+        tier._capacity,
+        "contains_many",
+        bounded_contains_many,
+    )
 
     results = lookup_and_wait(tier, [key(1), key(2)])
     assert results == [LookupResult.HIT, LookupResult.MISS]

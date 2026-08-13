@@ -19,15 +19,8 @@ import functools
 import json
 import os
 import threading
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING, ClassVar
-
-try:
-    from vllm.fs_io_C import batch_lookup as batch_lookup_C
-
-    _HAS_BATCH_LOOKUP_C = True
-except ImportError:
-    _HAS_BATCH_LOOKUP_C = False
 
 from typing_extensions import override
 
@@ -100,10 +93,7 @@ class FsAsyncLookupManager(AsyncLookupManager):
         self, keys: list[OffloadKey], req_context: ReqContext
     ) -> Iterable[bool]:
         paths = [self._tier.file_mapper.get_file_name(k) for k in keys]
-        if _HAS_BATCH_LOOKUP_C:
-            # C extension: GIL released for the entire faccessat() batch.
-            return batch_lookup_C(paths)
-        return (os.path.exists(p) for p in paths)
+        return self._tier._capacity.contains_many(paths)
 
 
 class FileSystemTierManager(SecondaryTierManager):
@@ -309,15 +299,57 @@ class FileSystemTierManager(SecondaryTierManager):
     def submit_load(self, job_metadata: JobMetadata) -> None:
         tasks = (
             functools.partial(
-                load_block,
+                self._load_one,
                 self.file_mapper.get_file_name(key),
-                self._primary_kv_view,
                 int(bid) * self._block_size,
-                self._block_size,
             )
             for key, bid in zip(job_metadata.keys, job_metadata.block_ids)
         )
-        self._pool.enqueue_load(job_metadata.job_id, len(job_metadata.keys), tasks)
+        self._pool.enqueue_load(
+            job_metadata.job_id,
+            len(job_metadata.keys),
+            tasks,
+        )
+
+    def _load_one(
+        self,
+        final_path: str,
+        offset: int,
+    ) -> None:
+        pin = self._capacity.pin_for_read(final_path)
+        if pin is None:
+            raise FileNotFoundError(
+                "filesystem cache entry is no longer committed: "
+                f"{final_path}"
+            )
+
+        try:
+            load_block(
+                final_path,
+                self._primary_kv_view,
+                offset,
+                self._block_size,
+            )
+        except Exception:
+            self._capacity.release_read(
+                pin,
+                invalidate=True,
+            )
+            raise
+        else:
+            self._capacity.release_read(pin)
+
+    @override
+    def touch(
+        self,
+        keys: Collection[OffloadKey],
+        req_context: ReqContext,
+    ) -> None:
+        paths = [
+            self.file_mapper.get_file_name(key)
+            for key in keys
+        ]
+        self._capacity.touch(paths)
 
     @override
     def get_finished_jobs(self) -> Iterable[JobResult]:
