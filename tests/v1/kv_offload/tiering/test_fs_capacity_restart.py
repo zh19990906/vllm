@@ -18,12 +18,7 @@ def managed_path(
     hash_hex: str = "0011223344556677",
     group: int = 0,
 ) -> Path:
-    path = (
-        root
-        / hash_hex[:3]
-        / f"{hash_hex[3:5]}_g{group}"
-        / f"{hash_hex}.bin"
-    )
+    path = root / hash_hex[:3] / f"{hash_hex[3:5]}_g{group}" / f"{hash_hex}.bin"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -92,23 +87,24 @@ class FileSystemCapacityRestartTests(unittest.TestCase):
             free=50,
         )
 
-        with mock.patch(
-            "vllm.v1.kv_offload.tiering.fs.capacity.shutil.disk_usage",
-            return_value=disk_usage,
-        ):
-            with self.assertLogs(
+        with (
+            mock.patch(
+                "vllm.v1.kv_offload.tiering.fs.capacity.shutil.disk_usage",
+                return_value=disk_usage,
+            ),
+            self.assertLogs(
                 "vllm.v1.kv_offload.tiering.fs.capacity",
                 level="WARNING",
-            ) as logs:
-                with self.manager(max_bytes=100) as cap:
-                    snap = cap.snapshot()
-                    self.assertEqual(snap.max_bytes, 100)
-                    self.assertEqual(snap.accounted_bytes, 0)
+            ) as logs,
+            self.manager(max_bytes=100) as cap,
+        ):
+            snap = cap.snapshot()
+            self.assertEqual(snap.max_bytes, 100)
+            self.assertEqual(snap.accounted_bytes, 0)
 
         self.assertTrue(
             any(
-                "physical" in message.lower()
-                and "enospc" in message.lower()
+                "physical" in message.lower() and "enospc" in message.lower()
                 for message in logs.output
             )
         )
@@ -134,15 +130,17 @@ class FileSystemCapacityRestartTests(unittest.TestCase):
                 raise PermissionError("injected temp cleanup failure")
             real_unlink(path)
 
-        with mock.patch(
-            "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
-            side_effect=selective_unlink,
-        ):
-            with self.assertRaisesRegex(
+        with (
+            mock.patch(
+                "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                side_effect=selective_unlink,
+            ),
+            self.assertRaisesRegex(
                 RuntimeError,
                 "temp|temporary|cleanup",
-            ):
-                self.manager(max_bytes=100)
+            ),
+        ):
+            self.manager(max_bytes=100)
 
         self.assertTrue(temp_path.exists())
 
@@ -224,18 +222,20 @@ class FileSystemCapacityRestartTests(unittest.TestCase):
                 raise PermissionError("injected corrupt-final cleanup failure")
             real_unlink(path)
 
-        with mock.patch(
-            "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
-            side_effect=selective_unlink,
-        ):
-            with self.assertRaisesRegex(
+        with (
+            mock.patch(
+                "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                side_effect=selective_unlink,
+            ),
+            self.assertRaisesRegex(
                 RuntimeError,
                 "size|corrupt|cleanup",
-            ):
-                self.manager(
-                    max_bytes=100,
-                    expected_file_size=40,
-                )
+            ),
+        ):
+            self.manager(
+                max_bytes=100,
+                expected_file_size=40,
+            )
 
         self.assertTrue(final_path.exists())
 
@@ -316,18 +316,20 @@ class FileSystemCapacityRestartTests(unittest.TestCase):
                 raise PermissionError("injected restart shrink failure")
             real_unlink(path)
 
-        with mock.patch(
-            "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
-            side_effect=selective_unlink,
-        ):
-            with self.assertRaisesRegex(
+        with (
+            mock.patch(
+                "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                side_effect=selective_unlink,
+            ),
+            self.assertRaisesRegex(
                 RuntimeError,
                 "capacity|shrink|evict",
-            ):
-                self.manager(
-                    max_bytes=40,
-                    expected_file_size=40,
-                )
+            ),
+        ):
+            self.manager(
+                max_bytes=40,
+                expected_file_size=40,
+            )
 
         self.assertTrue(oldest.exists())
         self.assertTrue(newest.exists())

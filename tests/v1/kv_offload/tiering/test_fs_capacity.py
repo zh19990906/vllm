@@ -22,12 +22,7 @@ def managed_path(
     hash_hex: str = "0011223344556677",
     group: int = 0,
 ) -> Path:
-    path = (
-        root
-        / hash_hex[:3]
-        / f"{hash_hex[3:5]}_g{group}"
-        / f"{hash_hex}.bin"
-    )
+    path = root / hash_hex[:3] / f"{hash_hex[3:5]}_g{group}" / f"{hash_hex}.bin"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -347,7 +342,6 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             self.assertEqual(snap.reserved_bytes, 40)
             self.assertEqual(snap.orphan_temp_count, 1)
 
-
     def test_contains_many_reports_only_committed_entries(self) -> None:
         present = managed_path(self.root)
         present.write_bytes(b"x" * 20)
@@ -457,22 +451,21 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             pin = cap.pin_for_read(str(victim))
             self.assertIsNotNone(pin)
 
-            with self.assertLogs(
-                "vllm.v1.kv_offload.tiering.fs.capacity",
-                level="WARNING",
-            ) as logs:
-                with mock.patch(
+            with (
+                self.assertLogs(
+                    "vllm.v1.kv_offload.tiering.fs.capacity",
+                    level="WARNING",
+                ) as logs,
+                mock.patch(
                     "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
-                    side_effect=PermissionError(
-                        "injected invalid cleanup failure"
-                    ),
-                ):
-                    cap.release_read(pin, invalidate=True)
+                    side_effect=PermissionError("injected invalid cleanup failure"),
+                ),
+            ):
+                cap.release_read(pin, invalidate=True)
 
             self.assertTrue(
                 any(
-                    "failed to remove invalid filesystem KV cache entry"
-                    in message
+                    "failed to remove invalid filesystem KV cache entry" in message
                     for message in logs.output
                 )
             )
@@ -523,15 +516,17 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
                     raise PermissionError("injected eviction failure")
                 real_unlink(path)
 
-            with self.assertLogs(
-                "vllm.v1.kv_offload.tiering.fs.capacity",
-                level="WARNING",
-            ) as logs:
-                with mock.patch(
+            with (
+                self.assertLogs(
+                    "vllm.v1.kv_offload.tiering.fs.capacity",
+                    level="WARNING",
+                ) as logs,
+                mock.patch(
                     "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
                     side_effect=selective_unlink,
-                ):
-                    result = cap.admit_write(str(incoming), 40)
+                ),
+            ):
+                result = cap.admit_write(str(incoming), 40)
 
             self.assertTrue(
                 any(
@@ -560,17 +555,17 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
                 hash_hex="1111223344556677",
             )
 
-            with self.assertLogs(
-                "vllm.v1.kv_offload.tiering.fs.capacity",
-                level="WARNING",
-            ) as logs:
-                with mock.patch(
+            with (
+                self.assertLogs(
+                    "vllm.v1.kv_offload.tiering.fs.capacity",
+                    level="WARNING",
+                ) as logs,
+                mock.patch(
                     "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
-                    side_effect=PermissionError(
-                        "injected eviction failure"
-                    ),
-                ):
-                    result = cap.admit_write(str(incoming), 40)
+                    side_effect=PermissionError("injected eviction failure"),
+                ),
+            ):
+                result = cap.admit_write(str(incoming), 40)
 
             self.assertTrue(
                 any(
@@ -613,14 +608,9 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
                 snap = cap.snapshot()
                 with result_lock:
                     statuses.append(result.status)
-                    observed_totals.append(
-                        snap.accounted_bytes + snap.reserved_bytes
-                    )
+                    observed_totals.append(snap.accounted_bytes + snap.reserved_bytes)
 
-            threads = [
-                threading.Thread(target=worker, args=(path,))
-                for path in paths
-            ]
+            threads = [threading.Thread(target=worker, args=(path,)) for path in paths]
             for thread in threads:
                 thread.start()
 
@@ -639,29 +629,28 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
                 ),
             )
             self.assertTrue(observed_totals)
-            self.assertTrue(
-                all(total <= 100 for total in observed_totals)
-            )
-
+            self.assertTrue(all(total <= 100 for total in observed_totals))
 
     def test_raw_load_failure_does_not_delete_final(self) -> None:
         final_path = managed_path(self.root)
         final_path.write_bytes(b"x" * 4)
         target = bytearray(8)
 
-        with mock.patch.object(
-            fs_io.os,
-            "open",
-            side_effect=FileNotFoundError("injected read failure"),
+        with (
+            mock.patch.object(
+                fs_io.os,
+                "open",
+                side_effect=FileNotFoundError("injected read failure"),
+            ),
+            mock.patch.object(fs_io.os, "remove") as remove,
+            self.assertRaises(FileNotFoundError),
         ):
-            with mock.patch.object(fs_io.os, "remove") as remove:
-                with self.assertRaises(FileNotFoundError):
-                    fs_io.load_block(
-                        str(final_path),
-                        memoryview(target),
-                        0,
-                        4,
-                    )
+            fs_io.load_block(
+                str(final_path),
+                memoryview(target),
+                0,
+                4,
+            )
 
         remove.assert_not_called()
         self.assertTrue(final_path.exists())
@@ -677,37 +666,38 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             opened_paths.append(path)
             return 17
 
-        with mock.patch.object(
-            fs_io.os,
-            "open",
-            side_effect=fake_open,
-        ):
-            with mock.patch.object(
+        with (
+            mock.patch.object(
+                fs_io.os,
+                "open",
+                side_effect=fake_open,
+            ),
+            mock.patch.object(
                 fs_io.os,
                 "write",
                 return_value=4,
-            ):
-                with mock.patch.object(fs_io.os, "close"):
-                    with mock.patch.object(fs_io.os, "replace") as replace:
-                        with mock.patch.object(
-                            fs_io,
-                            "_ensure_dirs",
-                        ) as ensure_dirs:
-                            with mock.patch.object(
-                                fs_io.os.path,
-                                "exists",
-                                side_effect=AssertionError(
-                                    "raw store must not check "
-                                    "destination existence"
-                                ),
-                            ):
-                                fs_io.store_block(
-                                    str(final_path),
-                                    str(temp_path),
-                                    memoryview(payload),
-                                    0,
-                                    4,
-                                )
+            ),
+            mock.patch.object(fs_io.os, "close"),
+            mock.patch.object(fs_io.os, "replace") as replace,
+            mock.patch.object(
+                fs_io,
+                "_ensure_dirs",
+            ) as ensure_dirs,
+            mock.patch.object(
+                fs_io.os.path,
+                "exists",
+                side_effect=AssertionError(
+                    "raw store must not check destination existence"
+                ),
+            ),
+        ):
+            fs_io.store_block(
+                str(final_path),
+                str(temp_path),
+                memoryview(payload),
+                0,
+                4,
+            )
 
         ensure_dirs.assert_called_once_with(str(final_path))
 
@@ -722,25 +712,27 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         temp_path = Path(f"{final_path}_456.tmp")
         payload = bytearray(b"abcdefgh")
 
-        with mock.patch.object(fs_io.os, "open", return_value=17):
-            with mock.patch.object(
+        with (
+            mock.patch.object(fs_io.os, "open", return_value=17),
+            mock.patch.object(
                 fs_io.os,
                 "write",
                 side_effect=OSError("injected write failure"),
-            ):
-                with mock.patch.object(fs_io.os, "close"):
-                    with mock.patch.object(fs_io.os, "remove") as remove:
-                        with self.assertRaisesRegex(
-                            OSError,
-                            "injected write failure",
-                        ):
-                            fs_io.store_block(
-                                str(final_path),
-                                str(temp_path),
-                                memoryview(payload),
-                                0,
-                                4,
-                            )
+            ),
+            mock.patch.object(fs_io.os, "close"),
+            mock.patch.object(fs_io.os, "remove") as remove,
+            self.assertRaisesRegex(
+                OSError,
+                "injected write failure",
+            ),
+        ):
+            fs_io.store_block(
+                str(final_path),
+                str(temp_path),
+                memoryview(payload),
+                0,
+                4,
+            )
 
         # Raw I/O must not make reservation/accounting cleanup decisions.
         remove.assert_not_called()
@@ -758,13 +750,9 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
     def test_store_cleanup_failure_retains_orphan_reservation(
         self,
     ) -> None:
-        manager = object.__new__(
-            fs_manager.FileSystemTierManager
-        )
+        manager = object.__new__(fs_manager.FileSystemTierManager)
         manager._block_size = 4
-        manager._primary_kv_view = memoryview(
-            bytearray(b"abcdefgh")
-        )
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
         manager._capacity = mock.MagicMock()
 
         reservation = object()
@@ -776,33 +764,33 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         final_path = str(managed_path(self.root))
         temp_path = f"{final_path}_999.tmp"
 
-        with mock.patch.object(
-            fs_manager,
-            "make_temp_path",
-            return_value=temp_path,
-        ):
-            with mock.patch.object(
+        with (
+            mock.patch.object(
+                fs_manager,
+                "make_temp_path",
+                return_value=temp_path,
+            ),
+            mock.patch.object(
                 fs_manager,
                 "store_block",
                 side_effect=OSError("injected store failure"),
-            ):
-                with mock.patch.object(
-                    fs_manager.os,
-                    "unlink",
-                    side_effect=PermissionError(
-                        "injected temp cleanup failure"
-                    ),
-                ):
-                    with self.assertRaisesRegex(
-                        OSError,
-                        "injected store failure",
-                    ):
-                        manager._store_one(
-                            final_path,
-                            0,
-                            None,
-                            0,
-                        )
+            ),
+            mock.patch.object(
+                fs_manager.os,
+                "unlink",
+                side_effect=PermissionError("injected temp cleanup failure"),
+            ),
+            self.assertRaisesRegex(
+                OSError,
+                "injected store failure",
+            ),
+        ):
+            manager._store_one(
+                final_path,
+                0,
+                None,
+                0,
+            )
 
         manager._capacity.retain_orphan_temp.assert_called_once_with(
             reservation,
@@ -823,9 +811,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         with mock.patch.object(
             fs_manager.os.path,
             "exists",
-            side_effect=AssertionError(
-                "bounded lookup must not use os.path.exists"
-            ),
+            side_effect=AssertionError("bounded lookup must not use os.path.exists"),
         ):
             result = list(
                 lookup.batch_lookup(
@@ -838,43 +824,35 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         tier._capacity.contains_many.assert_called_once_with(paths)
 
     def test_load_one_revalidates_pin_before_filesystem_io(self) -> None:
-        manager = object.__new__(
-            fs_manager.FileSystemTierManager
-        )
+        manager = object.__new__(fs_manager.FileSystemTierManager)
         manager._capacity = mock.MagicMock()
         manager._capacity.pin_for_read.return_value = None
         manager._block_size = 4
-        manager._primary_kv_view = memoryview(
-            bytearray(b"abcdefgh")
-        )
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
         final_path = str(managed_path(self.root))
 
-        with mock.patch.object(
-            fs_manager,
-            "load_block",
-        ) as load:
-            with self.assertRaisesRegex(
+        with (
+            mock.patch.object(
+                fs_manager,
+                "load_block",
+            ) as load,
+            self.assertRaisesRegex(
                 FileNotFoundError,
                 "no longer committed",
-            ):
-                manager._load_one(final_path, 0)
+            ),
+        ):
+            manager._load_one(final_path, 0)
 
         load.assert_not_called()
-        manager._capacity.pin_for_read.assert_called_once_with(
-            final_path
-        )
+        manager._capacity.pin_for_read.assert_called_once_with(final_path)
 
     def test_load_one_releases_pin_after_success(self) -> None:
-        manager = object.__new__(
-            fs_manager.FileSystemTierManager
-        )
+        manager = object.__new__(fs_manager.FileSystemTierManager)
         pin = object()
         manager._capacity = mock.MagicMock()
         manager._capacity.pin_for_read.return_value = pin
         manager._block_size = 4
-        manager._primary_kv_view = memoryview(
-            bytearray(b"abcdefgh")
-        )
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
         final_path = str(managed_path(self.root))
 
         with mock.patch.object(
@@ -892,28 +870,26 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         manager._capacity.release_read.assert_called_once_with(pin)
 
     def test_load_one_failure_invalidates_through_capacity(self) -> None:
-        manager = object.__new__(
-            fs_manager.FileSystemTierManager
-        )
+        manager = object.__new__(fs_manager.FileSystemTierManager)
         pin = object()
         manager._capacity = mock.MagicMock()
         manager._capacity.pin_for_read.return_value = pin
         manager._block_size = 4
-        manager._primary_kv_view = memoryview(
-            bytearray(b"abcdefgh")
-        )
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
         final_path = str(managed_path(self.root))
 
-        with mock.patch.object(
-            fs_manager,
-            "load_block",
-            side_effect=OSError("injected read failure"),
-        ):
-            with self.assertRaisesRegex(
+        with (
+            mock.patch.object(
+                fs_manager,
+                "load_block",
+                side_effect=OSError("injected read failure"),
+            ),
+            self.assertRaisesRegex(
                 OSError,
                 "injected read failure",
-            ):
-                manager._load_one(final_path, 0)
+            ),
+        ):
+            manager._load_one(final_path, 0)
 
         manager._capacity.release_read.assert_called_once_with(
             pin,
@@ -923,9 +899,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
     def test_touch_updates_capacity_lru_without_filesystem_metadata_io(
         self,
     ) -> None:
-        manager = object.__new__(
-            fs_manager.FileSystemTierManager
-        )
+        manager = object.__new__(fs_manager.FileSystemTierManager)
         manager.file_mapper = mock.MagicMock()
         manager._capacity = mock.MagicMock()
 
@@ -933,24 +907,22 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         paths = ["/cache/a.bin", "/cache/b.bin"]
         manager.file_mapper.get_file_name.side_effect = paths
 
-        with mock.patch.object(
-            fs_manager.os,
-            "stat",
-            side_effect=AssertionError(
-                "touch must not stat filesystem entries"
+        with (
+            mock.patch.object(
+                fs_manager.os,
+                "stat",
+                side_effect=AssertionError("touch must not stat filesystem entries"),
             ),
-        ):
-            with mock.patch.object(
+            mock.patch.object(
                 fs_manager.os,
                 "utime",
-                side_effect=AssertionError(
-                    "touch must not mutate file mtime"
-                ),
-            ):
-                manager.touch(
-                    keys,
-                    mock.MagicMock(),
-                )
+                side_effect=AssertionError("touch must not mutate file mtime"),
+            ),
+        ):
+            manager.touch(
+                keys,
+                mock.MagicMock(),
+            )
 
         manager._capacity.touch.assert_called_once_with(paths)
 
@@ -1017,9 +989,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             OffloadingGaugeMetadata,
         )
 
-        definitions = (
-            fs_manager.FileSystemTierManager.build_metric_definitions({})
-        )
+        definitions = fs_manager.FileSystemTierManager.build_metric_definitions({})
 
         gauge_names = {
             "vllm:kv_offload_fs_capacity_bytes",
@@ -1062,9 +1032,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
                 ("tier",),
             )
 
-        skip = definitions[
-            "vllm:kv_offload_fs_capacity_skips"
-        ]
+        skip = definitions["vllm:kv_offload_fs_capacity_skips"]
         self.assertIsInstance(skip, OffloadingCounterMetadata)
         self.assertEqual(
             skip.labelnames,
@@ -1081,9 +1049,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             def snapshot(self):
                 return next(self._snapshots)
 
-        manager = object.__new__(
-            fs_manager.FileSystemTierManager
-        )
+        manager = object.__new__(fs_manager.FileSystemTierManager)
         manager.instance_id = "fs:0"
         manager._last_capacity_counters = (
             0,
@@ -1132,21 +1098,15 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         first_data = first.data["data"]
 
         self.assertEqual(
-            first_data[
-                "vllm:kv_offload_fs_capacity_bytes"
-            ],
+            first_data["vllm:kv_offload_fs_capacity_bytes"],
             {("fs:0",): 100},
         )
         self.assertEqual(
-            first_data[
-                "vllm:kv_offload_fs_accounted_bytes"
-            ],
+            first_data["vllm:kv_offload_fs_accounted_bytes"],
             {("fs:0",): 40},
         )
         self.assertEqual(
-            first_data[
-                "vllm:kv_offload_fs_reserved_bytes"
-            ],
+            first_data["vllm:kv_offload_fs_reserved_bytes"],
             {("fs:0",): 10},
         )
         self.assertEqual(
@@ -1165,9 +1125,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            first_data[
-                "vllm:kv_offload_fs_eviction_failures"
-            ],
+            first_data["vllm:kv_offload_fs_eviction_failures"],
             {("fs:0",): 1},
         )
 
@@ -1176,15 +1134,11 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         second_data = second.data["data"]
 
         self.assertEqual(
-            second_data[
-                "vllm:kv_offload_fs_accounted_bytes"
-            ],
+            second_data["vllm:kv_offload_fs_accounted_bytes"],
             {("fs:0",): 50},
         )
         self.assertEqual(
-            second_data[
-                "vllm:kv_offload_fs_reserved_bytes"
-            ],
+            second_data["vllm:kv_offload_fs_reserved_bytes"],
             {("fs:0",): 0},
         )
         self.assertNotIn(
@@ -1224,9 +1178,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            third_data[
-                "vllm:kv_offload_fs_eviction_failures"
-            ],
+            third_data["vllm:kv_offload_fs_eviction_failures"],
             {("fs:0",): 1},
         )
 
@@ -1250,9 +1202,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
 
         managers = []
         for instance_id in ("fs:0", "fs:1"):
-            manager = object.__new__(
-                fs_manager.FileSystemTierManager
-            )
+            manager = object.__new__(fs_manager.FileSystemTierManager)
             manager.instance_id = instance_id
             manager._last_capacity_counters = (
                 0,
@@ -1272,9 +1222,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             aggregate.aggregate(stats)
 
         self.assertEqual(
-            aggregate.data["data"][
-                "vllm:kv_offload_fs_capacity_bytes"
-            ],
+            aggregate.data["data"]["vllm:kv_offload_fs_capacity_bytes"],
             {
                 ("fs:0",): 100,
                 ("fs:1",): 100,
@@ -1310,7 +1258,6 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
             "example:3",
         )
 
-
     def test_shutdown_rejects_surviving_non_orphan_reservation(
         self,
     ) -> None:
@@ -1324,16 +1271,14 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         admission = cap.admit_write(str(path), 40)
         self.assertEqual(admission.status, AdmissionStatus.RESERVED)
 
-        order = []
+        order: list[str | tuple[str, bool]] = []
 
         manager = object.__new__(fs_manager.FileSystemTierManager)
         manager._lookup_manager = mock.MagicMock()
-        manager._lookup_manager.shutdown.side_effect = (
-            lambda: order.append("lookup")
-        )
+        manager._lookup_manager.shutdown.side_effect = lambda: order.append("lookup")
         manager._pool = mock.MagicMock()
-        manager._pool.shutdown.side_effect = (
-            lambda wait=True: order.append(("pool", wait))
+        manager._pool.shutdown.side_effect = lambda wait=True: order.append(
+            ("pool", wait)
         )
 
         real_close = cap.close
@@ -1393,9 +1338,7 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         with (
             mock.patch(
                 "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
-                side_effect=PermissionError(
-                    "injected orphan cleanup failure"
-                ),
+                side_effect=PermissionError("injected orphan cleanup failure"),
             ),
             self.assertLogs(
                 "vllm.v1.kv_offload.tiering.fs.manager",

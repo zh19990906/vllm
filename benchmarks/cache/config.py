@@ -77,7 +77,7 @@ class FilesystemCacheConfig(StrictModel):
     write_threads: PositiveInt = 16
 
     @model_validator(mode="after")
-    def require_max_when_enabled(self) -> "FilesystemCacheConfig":
+    def require_max_when_enabled(self) -> FilesystemCacheConfig:
         if self.enabled and self.max_bytes is None:
             raise ValueError("filesystem.max_bytes is required when enabled")
         return self

@@ -6,10 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SMOKE_PATH = (
-    Path(__file__).parents[1]
-    / "issue31_fs_capacity_smoke.py"
-)
+SMOKE_PATH = Path(__file__).parents[1] / "issue31_fs_capacity_smoke.py"
 
 
 def load_smoke_module():

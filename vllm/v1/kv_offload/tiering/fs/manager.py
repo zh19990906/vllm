@@ -169,9 +169,7 @@ class FileSystemTierManager(SecondaryTierManager):
             or not isinstance(max_bytes, int)
             or max_bytes <= 0
         ):
-            raise ValueError(
-                "max_bytes must be a positive integer number of bytes"
-            )
+            raise ValueError("max_bytes must be a positive integer number of bytes")
         self.max_bytes = max_bytes
         self.locality = Locality(locality) if locality is not None else None
 
@@ -338,8 +336,7 @@ class FileSystemTierManager(SecondaryTierManager):
         pin = self._capacity.pin_for_read(final_path)
         if pin is None:
             raise FileNotFoundError(
-                "filesystem cache entry is no longer committed: "
-                f"{final_path}"
+                f"filesystem cache entry is no longer committed: {final_path}"
             )
 
         try:
@@ -364,10 +361,7 @@ class FileSystemTierManager(SecondaryTierManager):
         keys: Collection[OffloadKey],
         req_context: ReqContext,
     ) -> None:
-        paths = [
-            self.file_mapper.get_file_name(key)
-            for key in keys
-        ]
+        paths = [self.file_mapper.get_file_name(key) for key in keys]
         self._capacity.touch(paths)
 
     @override
@@ -448,8 +442,7 @@ class FileSystemTierManager(SecondaryTierManager):
             ),
             _FileSystemMetrics.EVICTED_BYTES: OffloadingCounterMetadata(
                 documentation=(
-                    "Filesystem KV-cache bytes evicted to enforce the "
-                    "logical capacity."
+                    "Filesystem KV-cache bytes evicted to enforce the logical capacity."
                 ),
                 labelnames=("tier",),
             ),
@@ -462,8 +455,7 @@ class FileSystemTierManager(SecondaryTierManager):
             ),
             _FileSystemMetrics.EVICTION_FAILURES: OffloadingCounterMetadata(
                 documentation=(
-                    "Number of filesystem KV-cache eviction unlink "
-                    "failures."
+                    "Number of filesystem KV-cache eviction unlink failures."
                 ),
                 labelnames=("tier",),
             ),

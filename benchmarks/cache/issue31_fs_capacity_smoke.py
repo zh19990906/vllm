@@ -29,12 +29,7 @@ MAX_BLOCKS = 3
 
 def _managed_path(root: Path, value: int) -> Path:
     block_hash = f"{value:016x}"
-    return (
-        root
-        / block_hash[:3]
-        / f"{block_hash[3:5]}_g0"
-        / f"{block_hash}.bin"
-    )
+    return root / block_hash[:3] / f"{block_hash[3:5]}_g0" / f"{block_hash}.bin"
 
 
 def _write_final(path: Path, size: int, fill: int) -> None:
@@ -43,19 +38,11 @@ def _write_final(path: Path, size: int, fill: int) -> None:
 
 
 def _payload_bytes(root: Path) -> int:
-    return sum(
-        path.stat().st_size
-        for path in root.rglob("*.bin")
-        if path.is_file()
-    )
+    return sum(path.stat().st_size for path in root.rglob("*.bin") if path.is_file())
 
 
 def _temp_bytes(root: Path) -> int:
-    return sum(
-        path.stat().st_size
-        for path in root.rglob("*.tmp")
-        if path.is_file()
-    )
+    return sum(path.stat().st_size for path in root.rglob("*.tmp") if path.is_file())
 
 
 def run_smoke(root: Path) -> dict[str, Any]:
@@ -63,9 +50,7 @@ def run_smoke(root: Path) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
 
     if any(root.iterdir()):
-        raise ValueError(
-            f"smoke root must be an owned empty directory: {root}"
-        )
+        raise ValueError(f"smoke root must be an owned empty directory: {root}")
 
     max_bytes = MAX_BLOCKS * BLOCK_SIZE
     paths = [_managed_path(root, i) for i in range(1, 9)]
@@ -80,8 +65,7 @@ def run_smoke(root: Path) -> dict[str, Any]:
         combined = snap.accounted_bytes + snap.reserved_bytes
         if combined > cap.max_bytes:
             raise AssertionError(
-                "logical hard capacity exceeded: "
-                f"{combined} > {cap.max_bytes}"
+                f"logical hard capacity exceeded: {combined} > {cap.max_bytes}"
             )
         peak_accounted = max(
             peak_accounted,
@@ -126,9 +110,7 @@ def run_smoke(root: Path) -> dict[str, Any]:
         except RuntimeError:
             ownership_conflict_rejected = True
         else:
-            raise AssertionError(
-                "second filesystem capacity owner was accepted"
-            )
+            raise AssertionError("second filesystem capacity owner was accepted")
 
         # Runtime LRU: touch path[0], so path[1] is the oldest victim.
         cap.touch([str(paths[0])])
@@ -140,13 +122,9 @@ def run_smoke(root: Path) -> dict[str, Any]:
             raise AssertionError(admission.status)
 
         if paths[1].exists():
-            raise AssertionError(
-                "runtime LRU did not unlink the expected oldest entry"
-            )
+            raise AssertionError("runtime LRU did not unlink the expected oldest entry")
         if not paths[0].exists() or not paths[2].exists():
-            raise AssertionError(
-                "runtime LRU removed a non-victim entry"
-            )
+            raise AssertionError("runtime LRU removed a non-victim entry")
 
         _write_final(paths[3], BLOCK_SIZE, 4)
         cap.commit_write(admission.reservation)
@@ -167,11 +145,7 @@ def run_smoke(root: Path) -> dict[str, Any]:
 
         # Pin every committed entry: normal-size admission has no
         # evictable victim and must skip without reserving.
-        committed = [
-            path
-            for path in (paths[0], paths[2], paths[3])
-            if path.exists()
-        ]
+        committed = [path for path in (paths[0], paths[2], paths[3]) if path.exists()]
         pins = [cap.pin_for_read(str(path)) for path in committed]
         if any(pin is None for pin in pins):
             raise AssertionError("failed to pin committed entry")
@@ -184,9 +158,7 @@ def run_smoke(root: Path) -> dict[str, Any]:
             if blocked.status is not AdmissionStatus.CAPACITY:
                 raise AssertionError(blocked.status)
             if blocked.reservation is not None:
-                raise AssertionError(
-                    "capacity skip unexpectedly owns reservation"
-                )
+                raise AssertionError("capacity skip unexpectedly owns reservation")
         finally:
             for pin in pins:
                 cap.release_read(pin)
@@ -221,16 +193,10 @@ def run_smoke(root: Path) -> dict[str, Any]:
             physical_temp_bytes == 2 * BLOCK_SIZE
             and peak_snap.reserved_bytes == 2 * BLOCK_SIZE
             and physical_final_bytes == BLOCK_SIZE
-            and (
-                peak_snap.accounted_bytes
-                + peak_snap.reserved_bytes
-                == max_bytes
-            )
+            and (peak_snap.accounted_bytes + peak_snap.reserved_bytes == max_bytes)
         )
         if not temp_peak_observed:
-            raise AssertionError(
-                "real temp-file capacity peak was not observed"
-            )
+            raise AssertionError("real temp-file capacity peak was not observed")
 
         # Atomically publish each temp and transfer reservation to
         # committed accounting.
@@ -260,8 +226,7 @@ def run_smoke(root: Path) -> dict[str, Any]:
         restart_snap = recovered.snapshot()
         restart_recovered_bytes = restart_snap.accounted_bytes
         restart_recovery_ok = (
-            restart_recovered_bytes == _payload_bytes(root)
-            == max_bytes
+            restart_recovered_bytes == _payload_bytes(root) == max_bytes
         )
 
     # Restart with a smaller max: constructor must synchronously shrink.
@@ -336,9 +301,7 @@ def main() -> None:
     result = run_smoke(args.root)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n"
-    )
+    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
     print(
         "issue31_fs_capacity_smoke=OK "

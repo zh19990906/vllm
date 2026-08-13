@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 import json
 import tempfile
 import unittest
@@ -21,13 +24,12 @@ class Issue31FilesystemCapacityConfigTests(unittest.TestCase):
             FilesystemCacheConfig(enabled=True, root_dir=Path("/tmp/cache"))
 
         for value in (None, 0, -1, True, 4096.0, "4096"):
-            with self.subTest(value=value):
-                with self.assertRaises(ValidationError):
-                    FilesystemCacheConfig(
-                        enabled=True,
-                        root_dir=Path("/tmp/cache"),
-                        max_bytes=value,
-                    )
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                FilesystemCacheConfig(
+                    enabled=True,
+                    root_dir=Path("/tmp/cache"),
+                    max_bytes=value,
+                )
 
     def test_disabled_filesystem_may_omit_max_bytes(self) -> None:
         config = FilesystemCacheConfig(
@@ -56,9 +58,7 @@ class Issue31FilesystemCapacityConfigTests(unittest.TestCase):
                 )
 
     def test_tiered_server_config_forwards_max_bytes(self) -> None:
-        config = load_suite_config(
-            Path("benchmarks/cache/configs/example-7b.yaml")
-        )
+        config = load_suite_config(Path("benchmarks/cache/configs/example-7b.yaml"))
 
         with tempfile.TemporaryDirectory() as temp_dir:
             case = next(
@@ -69,9 +69,7 @@ class Issue31FilesystemCapacityConfigTests(unittest.TestCase):
             )
 
         command = build_server_command(case, config)
-        payload = json.loads(
-            command[command.index("--kv-transfer-config") + 1]
-        )
+        payload = json.loads(command[command.index("--kv-transfer-config") + 1])
         fs_config = payload["kv_connector_extra_config"]["secondary_tiers"][0]
 
         self.assertEqual(

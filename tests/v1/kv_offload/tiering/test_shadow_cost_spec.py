@@ -159,9 +159,7 @@ def _install_import_stubs() -> tuple[ModuleType, ModuleType]:
             return SimpleNamespace(
                 tier_type=tier_config["type"],
                 instance_id=(
-                    tier_config["type"]
-                    if instance_id is None
-                    else instance_id
+                    tier_config["type"] if instance_id is None else instance_id
                 ),
             )
 
@@ -298,6 +296,7 @@ def test_tiering_spec_shares_one_cost_model_with_manager() -> None:
     assert manager.kwargs["cost_model"] is model
     assert manager.kwargs["secondary_tier_keys"] == ("filesystem",)
     assert manager.kwargs["tokens_per_chunk_by_group"] == (64,)
+
 
 def test_duplicate_filesystem_tiers_get_deterministic_runtime_identity() -> None:
     config = _config_with_shadow_model()

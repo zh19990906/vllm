@@ -361,17 +361,17 @@ Do not push from the Pod; publish the reviewed checkpoint through the GitHub wri
 **Interfaces:**
 
 - Produces:
-  - `EntryState(COMMITTED, EVICTING, INVALID)`
-  - `AdmissionStatus(RESERVED, ALREADY_PRESENT, DUPLICATE_INFLIGHT, OVERSIZED, CAPACITY)`
-  - `WriteReservation`
-  - `ReadPin`
-  - `CapacitySnapshot`
-  - `FileSystemCapacityManager(namespace_root: str, max_bytes: int, expected_file_size: int | None)`
-  - `admit_write(path: str, size: int, *, replace: bool = False) -> AdmissionResult`
-  - `commit_write(reservation: WriteReservation, final_size: int | None = None) -> None`
-  - `abort_write(reservation: WriteReservation) -> None`
-  - `retain_orphan_temp(reservation: WriteReservation, temp_path: str) -> None`
-  - `snapshot() -> CapacitySnapshot`
+    - `EntryState(COMMITTED, EVICTING, INVALID)`
+    - `AdmissionStatus(RESERVED, ALREADY_PRESENT, DUPLICATE_INFLIGHT, OVERSIZED, CAPACITY)`
+    - `WriteReservation`
+    - `ReadPin`
+    - `CapacitySnapshot`
+    - `FileSystemCapacityManager(namespace_root: str, max_bytes: int, expected_file_size: int | None)`
+    - `admit_write(path: str, size: int, *, replace: bool = False) -> AdmissionResult`
+    - `commit_write(reservation: WriteReservation, final_size: int | None = None) -> None`
+    - `abort_write(reservation: WriteReservation) -> None`
+    - `retain_orphan_temp(reservation: WriteReservation, temp_path: str) -> None`
+    - `snapshot() -> CapacitySnapshot`
 - Later tasks consume these exact names.
 
 - [ ] **Step 1: Write RED accounting tests in `test_fs_capacity.py`.**
@@ -570,11 +570,11 @@ Commit message: `feat: add filesystem capacity accounting`
 **Interfaces:**
 
 - Produces:
-  - `contains(path: str) -> bool`
-  - `contains_many(paths: list[str]) -> list[bool]`
-  - `touch(paths: Iterable[str]) -> None`
-  - `pin_for_read(path: str) -> ReadPin | None`
-  - `release_read(pin: ReadPin, *, invalidate: bool = False) -> None`
+    - `contains(path: str) -> bool`
+    - `contains_many(paths: list[str]) -> list[bool]`
+    - `touch(paths: Iterable[str]) -> None`
+    - `pin_for_read(path: str) -> ReadPin | None`
+    - `release_read(pin: ReadPin, *, invalidate: bool = False) -> None`
 - Extends `admit_write()` to perform deterministic LRU reclaim before returning `CAPACITY`.
 
 - [ ] **Step 1: Write RED LRU/read-pin tests.**

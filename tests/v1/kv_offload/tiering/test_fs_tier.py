@@ -48,9 +48,7 @@ from vllm.v1.kv_offload.tiering.fs.thread_pool import DualQueueThreadPool
 
 _BLOCK_ELEMENTS = 128 * mmap.PAGESIZE  # 2MB per block for pagesize 4096.
 _DTYPE: torch.dtype = torch.float32
-_BLOCK_BYTES = (
-    _BLOCK_ELEMENTS * torch.tensor([], dtype=_DTYPE).element_size()
-)
+_BLOCK_BYTES = _BLOCK_ELEMENTS * torch.tensor([], dtype=_DTYPE).element_size()
 _DEFAULT_MAX_BYTES = 8 * _BLOCK_BYTES
 _CTX = ReqContext(req_id="test")
 
@@ -208,9 +206,7 @@ def _new_bounded_fs_tier(
 ) -> tuple[FileSystemTierManager, torch.Tensor]:
     tensor = _page_aligned_zero_tensor(4, _BLOCK_ELEMENTS)
     tier = FileSystemTierManager(
-        offloading_spec=_make_offloading_spec(
-            enable_kv_cache_events=enable_events
-        ),
+        offloading_spec=_make_offloading_spec(enable_kv_cache_events=enable_events),
         primary_kv_view=memoryview(tensor.numpy()),
         tier_type="fs",
         root_dir=str(tmp_path),
@@ -295,7 +291,7 @@ def test_invalid_locality_raises_at_construction(tmp_path, locality):
             primary_kv_view=memoryview(tensor.numpy()),
             tier_type="fs",
             root_dir=str(tmp_path),
-        max_bytes=_DEFAULT_MAX_BYTES,
+            max_bytes=_DEFAULT_MAX_BYTES,
             locality=locality,
         )
 
@@ -628,9 +624,7 @@ def test_mixed_commit_and_capacity_skip_event_contains_only_commit(
         assert events[0].keys == [committed_key]
 
         assert os.path.exists(committed_path)
-        assert not os.path.exists(
-            tier.file_mapper.get_file_name(skipped_key)
-        )
+        assert not os.path.exists(tier.file_mapper.get_file_name(skipped_key))
         assert tier._capacity.snapshot().accounted_bytes == _BLOCK_BYTES
         assert tier._capacity.snapshot().reserved_bytes == 0
     finally:
@@ -700,6 +694,7 @@ def test_real_store_io_failure_fails_job_and_emits_no_event(
         enable_events=True,
     )
     try:
+
         def fail_store(*args, **kwargs):
             raise OSError("injected real store failure")
 

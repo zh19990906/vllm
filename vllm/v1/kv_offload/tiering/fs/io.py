@@ -56,13 +56,13 @@ def store_block(
         written = os.write(fd, view_slice)
         if written < len(view_slice):
             raise OSError(
-                f"Short write: expected {len(view_slice)} bytes, "
-                f"wrote {written}"
+                f"Short write: expected {len(view_slice)} bytes, wrote {written}"
             )
     finally:
         os.close(fd)
 
     os.replace(tmp_path, dest_path)
+
 
 def load_block(
     source_path: str,
@@ -82,10 +82,7 @@ def load_block(
         fd = os.open(source_path, os.O_RDONLY | O_DIRECT)
         bytes_read = os.readv(fd, [view_slice])
         if bytes_read < block_size:
-            raise OSError(
-                f"Short read: expected {block_size} bytes, "
-                f"read {bytes_read}"
-            )
+            raise OSError(f"Short read: expected {block_size} bytes, read {bytes_read}")
     finally:
         if fd is not None:
             os.close(fd)

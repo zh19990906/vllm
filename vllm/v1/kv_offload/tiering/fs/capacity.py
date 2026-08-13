@@ -6,7 +6,6 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
-import re
 import shutil
 import stat
 import threading
@@ -15,13 +14,13 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+import regex as re
+
 logger = logging.getLogger(__name__)
 
 _HEX_RE = re.compile(r"^[0-9a-f]+$")
 _GROUP_DIR_RE = re.compile(r"^([0-9a-f]{2})_g[0-9]+$")
-_TEMP_FILENAME_RE = re.compile(
-    r"^([0-9a-f]+)\.bin_[0-9]+\.tmp$"
-)
+_TEMP_FILENAME_RE = re.compile(r"^([0-9a-f]+)\.bin_[0-9]+\.tmp$")
 _CAPACITY_LOCK_FILENAME = ".capacity.lock"
 
 
@@ -102,9 +101,7 @@ class FileSystemCapacityManager:
             or not isinstance(expected_file_size, int)
             or expected_file_size <= 0
         ):
-            raise ValueError(
-                "expected_file_size must be a positive integer or None"
-            )
+            raise ValueError("expected_file_size must be a positive integer or None")
 
         self.namespace_root = os.path.abspath(namespace_root)
         self.max_bytes = max_bytes
@@ -175,10 +172,7 @@ class FileSystemCapacityManager:
         normalized = self._normalize_path(path)
         with self._metadata_lock:
             entry = self._entries.get(normalized)
-            return (
-                entry is not None
-                and entry.state is EntryState.COMMITTED
-            )
+            return entry is not None and entry.state is EntryState.COMMITTED
 
     def contains_many(self, paths: list[str]) -> list[bool]:
         normalized = [self._normalize_path(path) for path in paths]
@@ -196,10 +190,7 @@ class FileSystemCapacityManager:
         with self._metadata_lock:
             for path in normalized:
                 entry = self._entries.get(path)
-                if (
-                    entry is None
-                    or entry.state is not EntryState.COMMITTED
-                ):
+                if entry is None or entry.state is not EntryState.COMMITTED:
                     continue
                 self._clock += 1
                 entry.recency = self._clock
@@ -208,10 +199,7 @@ class FileSystemCapacityManager:
         normalized = self._normalize_path(path)
         with self._metadata_lock:
             entry = self._entries.get(normalized)
-            if (
-                entry is None
-                or entry.state is not EntryState.COMMITTED
-            ):
+            if entry is None or entry.state is not EntryState.COMMITTED:
                 return None
             entry.readers += 1
             return ReadPin(
@@ -230,10 +218,7 @@ class FileSystemCapacityManager:
         with self._admission_lock:
             with self._metadata_lock:
                 entry = self._entries.get(pin.path)
-                if (
-                    entry is None
-                    or entry.generation != pin.generation
-                ):
+                if entry is None or entry.generation != pin.generation:
                     raise ValueError("read pin is stale")
                 if entry.readers <= 0:
                     raise ValueError("read pin is already released")
@@ -243,8 +228,7 @@ class FileSystemCapacityManager:
 
                 entry.readers -= 1
                 should_cleanup = (
-                    entry.state is EntryState.INVALID
-                    and entry.readers == 0
+                    entry.state is EntryState.INVALID and entry.readers == 0
                 )
 
             if not should_cleanup:
@@ -306,34 +290,21 @@ class FileSystemCapacityManager:
                         )
                     self._clock += 1
                     existing.recency = self._clock
-                    return AdmissionResult(
-                        status=AdmissionStatus.ALREADY_PRESENT
-                    )
+                    return AdmissionResult(status=AdmissionStatus.ALREADY_PRESENT)
 
                 if normalized in self._pending_writes:
-                    return AdmissionResult(
-                        status=AdmissionStatus.DUPLICATE_INFLIGHT
-                    )
+                    return AdmissionResult(status=AdmissionStatus.DUPLICATE_INFLIGHT)
 
-                if (
-                    existing is not None
-                    and existing.state is not EntryState.COMMITTED
-                ):
+                if existing is not None and existing.state is not EntryState.COMMITTED:
                     self._capacity_skip_count += 1
-                    return AdmissionResult(
-                        status=AdmissionStatus.CAPACITY
-                    )
+                    return AdmissionResult(status=AdmissionStatus.CAPACITY)
 
                 if size > self.max_bytes:
                     self._oversized_skip_count += 1
-                    return AdmissionResult(
-                        status=AdmissionStatus.OVERSIZED
-                    )
+                    return AdmissionResult(status=AdmissionStatus.OVERSIZED)
 
                 replaced_generation = (
-                    existing.generation
-                    if replace and existing is not None
-                    else None
+                    existing.generation if replace and existing is not None else None
                 )
 
             if not self._ensure_capacity_for_write(
@@ -342,9 +313,7 @@ class FileSystemCapacityManager:
             ):
                 with self._metadata_lock:
                     self._capacity_skip_count += 1
-                return AdmissionResult(
-                    status=AdmissionStatus.CAPACITY
-                )
+                return AdmissionResult(status=AdmissionStatus.CAPACITY)
 
             with self._metadata_lock:
                 # admission_lock excludes concurrent byte-changing
@@ -384,9 +353,7 @@ class FileSystemCapacityManager:
                 raise ValueError("final_size must be a positive integer")
 
             if final_size != reservation.size:
-                raise ValueError(
-                    "committed file size does not match reserved size"
-                )
+                raise ValueError("committed file size does not match reserved size")
 
             with self._metadata_lock:
                 if not reservation.active:
@@ -403,17 +370,13 @@ class FileSystemCapacityManager:
                     if (
                         existing is None
                         or existing.state is not EntryState.COMMITTED
-                        or existing.generation
-                        != reservation.replaced_generation
+                        or existing.generation != reservation.replaced_generation
                     ):
-                        raise ValueError(
-                            "replacement target changed before commit"
-                        )
+                        raise ValueError("replacement target changed before commit")
                     old_size = existing.size
                 elif existing is not None:
                     raise ValueError(
-                        "new-write reservation unexpectedly has an "
-                        "existing entry"
+                        "new-write reservation unexpectedly has an existing entry"
                     )
 
                 del self._pending_writes[reservation.path]
@@ -436,20 +399,19 @@ class FileSystemCapacityManager:
                 self._assert_invariants_locked()
 
     def abort_write(self, reservation: WriteReservation) -> None:
-        with self._admission_lock:
-            with self._metadata_lock:
-                if not reservation.active:
-                    return
+        with self._admission_lock, self._metadata_lock:
+            if not reservation.active:
+                return
 
-                pending = self._pending_writes.get(reservation.path)
-                if pending is None or pending.token != reservation.token:
-                    raise ValueError("reservation is not pending")
+            pending = self._pending_writes.get(reservation.path)
+            if pending is None or pending.token != reservation.token:
+                raise ValueError("reservation is not pending")
 
-                del self._pending_writes[reservation.path]
-                self._reserved_bytes -= reservation.size
-                reservation.active = False
+            del self._pending_writes[reservation.path]
+            self._reserved_bytes -= reservation.size
+            reservation.active = False
 
-                self._assert_invariants_locked()
+            self._assert_invariants_locked()
 
     def retain_orphan_temp(
         self,
@@ -458,26 +420,25 @@ class FileSystemCapacityManager:
     ) -> None:
         normalized_temp = self._normalize_path(temp_path)
 
-        with self._admission_lock:
-            with self._metadata_lock:
-                if not reservation.active:
-                    raise ValueError("reservation is no longer active")
+        with self._admission_lock, self._metadata_lock:
+            if not reservation.active:
+                raise ValueError("reservation is no longer active")
 
-                pending = self._pending_writes.get(reservation.path)
-                if pending is None or pending.token != reservation.token:
-                    raise ValueError("reservation is not pending")
+            pending = self._pending_writes.get(reservation.path)
+            if pending is None or pending.token != reservation.token:
+                raise ValueError("reservation is not pending")
 
-                if normalized_temp in self._orphan_temps:
-                    raise ValueError("orphan temp path is already tracked")
+            if normalized_temp in self._orphan_temps:
+                raise ValueError("orphan temp path is already tracked")
 
-                del self._pending_writes[reservation.path]
-                self._orphan_temps[normalized_temp] = reservation
+            del self._pending_writes[reservation.path]
+            self._orphan_temps[normalized_temp] = reservation
 
-                # The reservation charge remains in _reserved_bytes until
-                # deletion of the temp is confirmed.
-                reservation.active = False
+            # The reservation charge remains in _reserved_bytes until
+            # deletion of the temp is confirmed.
+            reservation.active = False
 
-                self._assert_invariants_locked()
+            self._assert_invariants_locked()
 
     def _reap_orphan_temps(self) -> None:
         # admission_lock must be held. Actual unlink happens outside
@@ -518,9 +479,7 @@ class FileSystemCapacityManager:
         while True:
             with self._metadata_lock:
                 if (
-                    self._accounted_bytes
-                    + self._reserved_bytes
-                    + size
+                    self._accounted_bytes + self._reserved_bytes + size
                     <= self.max_bytes
                 ):
                     return True
@@ -581,8 +540,7 @@ class FileSystemCapacityManager:
                     or current.state is not EntryState.EVICTING
                 ):
                     raise RuntimeError(
-                        "filesystem KV cache eviction victim "
-                        "changed unexpectedly"
+                        "filesystem KV cache eviction victim changed unexpectedly"
                     )
 
                 del self._entries[victim_path]
@@ -631,8 +589,7 @@ class FileSystemCapacityManager:
             fd = os.open(lock_path, flags, 0o600)
         except OSError as exc:
             raise RuntimeError(
-                f"failed to open filesystem KV cache capacity lock: "
-                f"{lock_path}"
+                f"failed to open filesystem KV cache capacity lock: {lock_path}"
             ) from exc
 
         try:
@@ -678,8 +635,7 @@ class FileSystemCapacityManager:
                     )
             except OSError as exc:
                 raise RuntimeError(
-                    "failed to scan filesystem KV cache namespace: "
-                    f"{directory}"
+                    f"failed to scan filesystem KV cache namespace: {directory}"
                 ) from exc
 
             for child in children:
@@ -692,8 +648,7 @@ class FileSystemCapacityManager:
                     metadata = child.stat(follow_symlinks=False)
                 except OSError as exc:
                     raise RuntimeError(
-                        "failed to inspect filesystem KV cache artifact: "
-                        f"{path}"
+                        f"failed to inspect filesystem KV cache artifact: {path}"
                     ) from exc
 
                 mode = metadata.st_mode
@@ -722,10 +677,7 @@ class FileSystemCapacityManager:
                     continue
 
                 if not self._is_managed_final(path):
-                    raise RuntimeError(
-                        "unknown filesystem KV cache artifact: "
-                        f"{path}"
-                    )
+                    raise RuntimeError(f"unknown filesystem KV cache artifact: {path}")
 
                 size = metadata.st_size
                 if (
@@ -832,33 +784,21 @@ class FileSystemCapacityManager:
         if len(hash_hex) < 5 or _HEX_RE.fullmatch(hash_hex) is None:
             return False
 
-        return (
-            hash_hex[:3] == first
-            and hash_hex[3:5] == group_match.group(1)
-        )
+        return hash_hex[:3] == first and hash_hex[3:5] == group_match.group(1)
 
     def _normalize_path(self, path: str) -> str:
         normalized = os.path.abspath(path)
         try:
-            common = os.path.commonpath(
-                [self.namespace_root, normalized]
-            )
+            common = os.path.commonpath([self.namespace_root, normalized])
         except ValueError as exc:
-            raise ValueError(
-                "managed path must be inside namespace_root"
-            ) from exc
+            raise ValueError("managed path must be inside namespace_root") from exc
 
         if common != self.namespace_root:
-            raise ValueError(
-                "managed path must be inside namespace_root"
-            )
+            raise ValueError("managed path must be inside namespace_root")
 
         return normalized
 
     def _assert_invariants_locked(self) -> None:
         assert self._accounted_bytes >= 0
         assert self._reserved_bytes >= 0
-        assert (
-            self._accounted_bytes + self._reserved_bytes
-            <= self.max_bytes
-        )
+        assert self._accounted_bytes + self._reserved_bytes <= self.max_bytes
