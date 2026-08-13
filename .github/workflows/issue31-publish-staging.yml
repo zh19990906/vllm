@@ -1,0 +1,76 @@
+name: issue31 publication staging
+
+on:
+  push:
+    branches:
+      - agent/issue31-publish-staging-20260813
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Rebuild verified patch series and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat .issue31-upload/*.b64 | tr -d '\n' | base64 -d > /tmp/issue31.mbox.gz
+          echo "a42a01684d89ff41ba4298e14e7de99133e31fb6fd1d13223f3d3cc012e98f91  /tmp/issue31.mbox.gz" | sha256sum -c -
+          gzip -dc /tmp/issue31.mbox.gz > /tmp/issue31.mbox
+
+          git fetch origin agent/issue31-fs-hard-capacity
+          git checkout -B issue31-publish origin/agent/issue31-fs-hard-capacity
+          test "$(git rev-parse HEAD)" = "eea0ff4b16711693b6f9945a4a808916990442ee"
+
+          git config user.name "Your Name"
+          git config user.email "you@example.com"
+          git config commit.gpgsign false
+          git am --committer-date-is-author-date /tmp/issue31.mbox
+
+          test "$(git rev-list --count eea0ff4b16711693b6f9945a4a808916990442ee..HEAD)" = "10"
+          test "$(git rev-parse HEAD)" = "4740c6b2e3ee545b5940f9cffed7dca5b4a39945"
+
+          while read -r expected path; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected"
+          done <<'EOF'
+b25018f0406341eff2263246140097a97b9b453b benchmarks/cache/config.py
+661e00f4f779085c0c7c00eb9af4c41202e70943 benchmarks/cache/configs/example-397b.yaml
+578a9c349736c38bc956087dca8cc4af49b04faf benchmarks/cache/configs/example-70b.yaml
+626bd17abe6c8350e081117d7c96cd338fa7f1a2 benchmarks/cache/configs/example-7b.yaml
+df80f6f6f90d261f97ec3815c21a99c706f67a8f benchmarks/cache/configs/issue15-14b-formal-fs.yaml
+ce19f618cf88a34bc9a899832ddd399211a081f3 benchmarks/cache/configs/issue15-7b-load-sentinel-fs.yaml
+b508c50759bd42e8aad584762db712188c147406 benchmarks/cache/configs/local-crossover.yaml
+246f2b24ecb4c9d097c769716e35de2772a22b4f benchmarks/cache/issue31_fs_capacity_smoke.py
+a84997e75c066252395067e70cb73474baa28e87 benchmarks/cache/scenarios.py
+151c3118061b7def9ee1cba60d86bfe1609f3c77 benchmarks/cache/tests/conftest.py
+87751f6f55500fc906e1ae205c404f6639013252 benchmarks/cache/tests/test_config.py
+24411b5f6a8757880982e9ce97409bde043890fa benchmarks/cache/tests/test_issue31_fs_capacity_config.py
+6620c0888812d1f64683a18bc57f7b2956bed734 benchmarks/cache/tests/test_issue31_fs_capacity_smoke.py
+a95bde6806f709031c3a8ef9ffa0533aff119628 benchmarks/cache/tests/test_scenarios.py
+4f2f0c7bb94a77710c9da9632de47a4671b56d72 docs/engineering/CURRENT_STATE.md
+e10e144b29dc77f63423fb3426fa6644cf4d5a52 docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.json
+23059b9f4a7ed27d705b3619ebaa1a93f248a15e docs/engineering/validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md
+b93b70921654f516de3d52d0e34ad55b3533d6bb tests/v1/kv_connector/unit/test_offloading_connector.py
+a1261414d25e62e575a7d217501e05c27a44132c tests/v1/kv_offload/tiering/test_factory.py
+10cf5ca643a9ff356b8284387ff050565426089e tests/v1/kv_offload/tiering/test_fs_capacity.py
+8585c4bcc35a980c2b6b747e03940fb3ae1ccfac tests/v1/kv_offload/tiering/test_fs_capacity_restart.py
+17887273187cf3c8113f1a4c10a8b8902fcd7810 tests/v1/kv_offload/tiering/test_fs_tier.py
+00d92c02c8c13f057fda62a87e02935b5c09bcba tests/v1/kv_offload/tiering/test_shadow_cost_spec.py
+175be8a0f277a4914bb63f36c2e75313b6f86d8a tests/v1/kv_offload/tiering/test_shadow_cost_tier_config.py
+18246c257755804e7eada5afbb4215f6fa7f04a8 vllm/v1/kv_offload/file_mapper.py
+4ce7fb3c821ba7aa4163388ccd3d2e83a54e31a1 vllm/v1/kv_offload/tiering/base.py
+eaf828239bc4e5d94d509a1bfaa2dcac6f453327 vllm/v1/kv_offload/tiering/factory.py
+32d85a45a278d4f675ef68bdf4b0c54e4bcd845a vllm/v1/kv_offload/tiering/fs/capacity.py
+45b7105e20e9328ceddb3ec128e79792310bd0e3 vllm/v1/kv_offload/tiering/fs/io.py
+3118a007f7909faec13617c64701e8bb16f527e7 vllm/v1/kv_offload/tiering/fs/manager.py
+b0bcb3703f5bad7ae71d826609f08a9b9fbd0293 vllm/v1/kv_offload/tiering/spec.py
+EOF
+
+          git push origin HEAD:refs/heads/agent/issue31-fs-hard-capacity
