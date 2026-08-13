@@ -554,11 +554,32 @@ class FileSystemTierManager(SecondaryTierManager):
         """
         Release resources held by this tier.
 
-        Shuts down the lookup manager and the thread pool,
-        clearing pending tasks and waiting for active threads to complete.
+        Stop lookup work first, then cancel/join the I/O pool before
+        releasing filesystem capacity ownership. Queued tasks never own
+        reservations because admission happens only after a worker starts.
         """
         self._lookup_manager.shutdown()
         try:
             self._pool.shutdown(wait=True)
         finally:
+            # close() retries orphan-temp cleanup before releasing the
+            # namespace ownership lock.
             self._capacity.close()
+
+        snapshot = self._capacity.snapshot()
+
+        if snapshot.pending_write_count:
+            raise AssertionError(
+                "pending filesystem capacity reservation survived "
+                f"shutdown: count={snapshot.pending_write_count}, "
+                f"reserved_bytes={snapshot.reserved_bytes}"
+            )
+
+        if snapshot.orphan_temp_count:
+            logger.warning(
+                "filesystem KV cache shutdown retained %d orphan temp "
+                "reservation(s), reserved_bytes=%d; restart recovery "
+                "remains responsible for cleanup or fail-fast",
+                snapshot.orphan_temp_count,
+                snapshot.reserved_bytes,
+            )

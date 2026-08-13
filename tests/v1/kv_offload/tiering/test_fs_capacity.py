@@ -1311,5 +1311,213 @@ class FileSystemCapacityManagerTests(unittest.TestCase):
         )
 
 
+    def test_shutdown_rejects_surviving_non_orphan_reservation(
+        self,
+    ) -> None:
+        path = managed_path(self.root)
+
+        cap = FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        )
+        admission = cap.admit_write(str(path), 40)
+        self.assertEqual(admission.status, AdmissionStatus.RESERVED)
+
+        order = []
+
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager._lookup_manager = mock.MagicMock()
+        manager._lookup_manager.shutdown.side_effect = (
+            lambda: order.append("lookup")
+        )
+        manager._pool = mock.MagicMock()
+        manager._pool.shutdown.side_effect = (
+            lambda wait=True: order.append(("pool", wait))
+        )
+
+        real_close = cap.close
+
+        def close_capacity():
+            order.append("capacity")
+            real_close()
+
+        cap.close = close_capacity
+        manager._capacity = cap
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            "pending filesystem capacity reservation",
+        ):
+            manager.shutdown()
+
+        self.assertEqual(
+            order,
+            ["lookup", ("pool", True), "capacity"],
+        )
+
+        # Even invariant failure must not leak namespace ownership.
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        ):
+            pass
+
+    def test_shutdown_surfaces_surviving_orphan_reservation(
+        self,
+    ) -> None:
+        final_path = managed_path(self.root)
+        temp_path = Path(f"{final_path}_123.tmp")
+
+        cap = FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        )
+        admission = cap.admit_write(str(final_path), 40)
+        self.assertEqual(admission.status, AdmissionStatus.RESERVED)
+
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path.write_bytes(b"x" * 40)
+        cap.retain_orphan_temp(
+            admission.reservation,
+            str(temp_path),
+        )
+
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager._lookup_manager = mock.MagicMock()
+        manager._pool = mock.MagicMock()
+        manager._capacity = cap
+
+        with (
+            mock.patch(
+                "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                side_effect=PermissionError(
+                    "injected orphan cleanup failure"
+                ),
+            ),
+            self.assertLogs(
+                "vllm.v1.kv_offload.tiering.fs.manager",
+                level="WARNING",
+            ) as logs,
+        ):
+            manager.shutdown()
+
+        snap = cap.snapshot()
+        self.assertEqual(snap.pending_write_count, 0)
+        self.assertEqual(snap.orphan_temp_count, 1)
+        self.assertEqual(snap.reserved_bytes, 40)
+        self.assertTrue(
+            any("orphan" in line.lower() for line in logs.output),
+            logs.output,
+        )
+
+        # close() released ownership even though cleanup failed.
+        # Restart owns cleanup once the injected unlink failure is gone.
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        ) as recovered:
+            recovered_snap = recovered.snapshot()
+            self.assertEqual(recovered_snap.reserved_bytes, 0)
+            self.assertEqual(recovered_snap.orphan_temp_count, 0)
+
+        self.assertFalse(temp_path.exists())
+
+    def test_queued_tasks_do_not_reserve_before_worker_start(
+        self,
+    ) -> None:
+        from vllm.v1.kv_offload.tiering.fs.thread_pool import (
+            DualQueueThreadPool,
+        )
+
+        cap = FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=120,
+            expected_file_size=None,
+        )
+        pool = DualQueueThreadPool(
+            n_read_threads=0,
+            n_write_threads=1,
+        )
+
+        active_started = threading.Event()
+        release_active = threading.Event()
+        queued_started = []
+
+        paths = [
+            managed_path(self.root, "0011223344556677"),
+            managed_path(self.root, "1122334455667788"),
+            managed_path(self.root, "2233445566778899"),
+        ]
+
+        def active_task():
+            result = cap.admit_write(str(paths[0]), 40)
+            self.assertEqual(
+                result.status,
+                AdmissionStatus.RESERVED,
+            )
+            active_started.set()
+            if not release_active.wait(timeout=5):
+                raise RuntimeError("active task barrier timed out")
+            cap.abort_write(result.reservation)
+
+        def queued_task(path):
+            queued_started.append(str(path))
+            result = cap.admit_write(str(path), 40)
+            if result.reservation is not None:
+                cap.abort_write(result.reservation)
+
+        try:
+            pool.enqueue_store(1, 1, [active_task])
+            self.assertTrue(active_started.wait(timeout=5))
+
+            pool.enqueue_store(
+                2,
+                1,
+                [lambda: queued_task(paths[1])],
+            )
+            pool.enqueue_store(
+                3,
+                1,
+                [lambda: queued_task(paths[2])],
+            )
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.pending_write_count, 1)
+            self.assertEqual(snap.reserved_bytes, 40)
+            self.assertEqual(queued_started, [])
+
+            # Cancels queued tasks without waiting for the active task.
+            pool.shutdown(wait=False)
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.pending_write_count, 1)
+            self.assertEqual(snap.reserved_bytes, 40)
+            self.assertEqual(queued_started, [])
+
+            release_active.set()
+            pool.shutdown(wait=True)
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.pending_write_count, 0)
+            self.assertEqual(snap.reserved_bytes, 0)
+            self.assertEqual(queued_started, [])
+        finally:
+            release_active.set()
+            pool.shutdown(wait=True)
+            cap.close()
+
+        # Normal shutdown released ownership.
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=120,
+            expected_file_size=None,
+        ):
+            pass
+
+
 if __name__ == "__main__":
     unittest.main()
