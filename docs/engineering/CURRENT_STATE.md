@@ -68,14 +68,17 @@ Issue #31 adds a bounded filesystem KV-cache tier with a required positive
 read pins, restart recovery, exclusive namespace ownership, shutdown lifecycle
 invariants, and low-cardinality capacity metrics.
 
-The implementation is locally validated at
-`949beed012b57281ae8eadd63cc8a674fb1975e0`, with formal filesystem evidence in:
+The formal filesystem validation was produced from implementation head
+`949beed012b57281ae8eadd63cc8a674fb1975e0`. The current delivery head is
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`, which retains that behavior plus
+repository quality-gate remediation. Formal filesystem evidence is recorded in:
 
 [`validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md`](validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md).
 
-The GitHub implementation branch has not yet been updated from its plan-only head and
-no Draft PR/authoritative CI result exists yet. Do not describe Issue #31 as merged or
-closed.
+GitHub branch `agent/issue31-fs-hard-capacity` now points to
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. Draft PR #33 is open, and
+authoritative GitHub pre-commit run #202 passed on its latest attempt. Do not
+describe Issue #31 as merged or closed.
 
 ### Next P0 stage
 
@@ -156,8 +159,9 @@ The consolidated progress record is:
 
 ## Current objective: finalize Issue #31 filesystem hard-capacity delivery
 
-Issue #31 has completed local implementation and local filesystem validation. Remaining
-work is repository delivery and authoritative CI, not additional local feature expansion.
+Issue #31 has completed local implementation, local filesystem validation, repository
+publication, and authoritative GitHub pre-commit CI. Remaining work is final review
+and explicit merge authorization, not additional local feature expansion.
 
 Current local evidence establishes:
 
@@ -185,14 +189,23 @@ The machine-readable companion is:
 Live GitHub `main` was observed at
 `c4d9fce61ec5a8eadc24dab8698eca7705d005bf`.
 
-Before publication, GitHub branch `agent/issue31-fs-hard-capacity` remained at the
-plan-only commit `eea0ff4b16711693b6f9945a4a808916990442ee`, while the validated
-Pod-local implementation head was
-`949beed012b57281ae8eadd63cc8a674fb1975e0`.
+Draft PR #33 targets `main` from
+`agent/issue31-fs-hard-capacity@2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
 
-The next step is to publish the implementation to GitHub, open a Draft PR with
-`Closes #31`, run authoritative CI, and review the result. Issue #16 remains blocked
-until Issue #31 is merged and closed.
+Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+attempt on implementation head
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. This documentation-only refresh
+will create a newer delivery head, which requires a fresh authoritative CI run
+after publication. The PR remains Draft and unmerged. Green CI is not merge
+authorization.
+
+Pytest is unavailable in the Pod, and no pytest CI job was observed for the
+current PR head. Focused Issue #31 unittest, smoke-contract, mypy, repository
+policy, compile, and formal real-filesystem evidence remain recorded in the
+validation artifact.
+
+The next step is final review. Merge requires explicit user authorization.
+Issue #16 remains blocked until Issue #31 is merged and closed.
 
 ## Important interpretation rules
 

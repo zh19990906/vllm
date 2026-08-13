@@ -2,7 +2,7 @@
 
 ## Executive conclusion
 
-Issue #31 is **locally validated with authoritative GitHub CI still pending**.
+Issue #31 is **locally validated and authoritative GitHub pre-commit CI passed on implementation head `2752b4950f0f30eedbb7f6bb3b60a83512a012c4`; this documentation-only refresh requires a fresh CI run after publication before merge**.
 
 The filesystem KV-cache tier now treats configured `max_bytes` as a hard logical
 capacity ceiling and accounts both committed bytes and in-flight reservations against
@@ -16,9 +16,10 @@ runtime LRU eviction, both capacity-skip reasons, restart accounting rebuild,
 synchronous smaller-max startup shrink, and rejection of a second namespace owner.
 
 This is filesystem evidence only. It is **not** evidence of physical NVMe performance.
-The implementation has not yet been published from the Pod-local implementation head
-to the GitHub Issue #31 branch, no Draft PR exists yet, and authoritative GitHub CI
-has not run.
+The implementation is published as Draft PR #33 at
+`agent/issue31-fs-hard-capacity@2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+attempt. The PR remains Draft and has not been merged.
 
 ## Scope and provenance
 
@@ -28,8 +29,11 @@ has not run.
   `main@c4d9fce61ec5a8eadc24dab8698eca7705d005bf`.
 - Pod-local implementation head before this validation-document commit:
   `949beed012b57281ae8eadd63cc8a674fb1975e0`.
-- GitHub branch `agent/issue31-fs-hard-capacity` still pointed to
-  `eea0ff4b16711693b6f9945a4a808916990442ee` before publication.
+- GitHub branch `agent/issue31-fs-hard-capacity` now points to
+  `2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+- Draft PR #33 is open and remains Draft.
+- Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+  attempt.
 - Approved design:
   `docs/superpowers/specs/2026-08-12-filesystem-kv-cache-hard-capacity-design.md`.
 - Approved implementation plan:
@@ -37,8 +41,9 @@ has not run.
 - Formal smoke evidence:
   `/code/results/cache/issue31-fs-capacity-20260812-run3/smoke.json`.
 - Formal filesystem provenance label: `filesystem`.
-- Pytest is unavailable in the Pod; pytest-only coverage remains an authoritative
-  GitHub-CI gate.
+- Pytest is unavailable in the Pod; no pytest CI job was observed for PR #33
+  at the current delivery head. Focused Issue #31 unittest coverage is recorded
+  below.
 
 ## Fresh focused verification
 
@@ -50,7 +55,7 @@ has not run.
 | compileall | exit 0 |
 | targeted Ruff | exit 0 |
 | `git diff --check` | exit 0 |
-| Pod pytest | unavailable; deferred to GitHub CI |
+| Pod pytest | unavailable; no pytest CI job observed on PR #33 |
 
 These commands were rerun from the final Task 10 implementation head rather than
 inferred from earlier task-level results.
@@ -191,8 +196,9 @@ restore-vs-recompute decision policy.
 
 No claim is made here that a new end-to-end model-inference benchmark was added specifically
 for Issue #31. The correctness claim is limited to the cache-manager/state-machine behavior
-covered locally plus the existing inference architecture; authoritative repository CI is
-still required before merge.
+covered locally plus the existing inference architecture. Authoritative GitHub
+pre-commit CI has passed; final review and explicit user merge authorization are
+still required.
 
 ## Evidence-run history
 
@@ -217,16 +223,31 @@ Issue #31 does not implement:
 - adaptive capacity recommendation from filesystem free space;
 - a physical NVMe performance claim.
 
-**Issue #16 remains blocked until Issue #31 is published, passes authoritative GitHub CI,
-is merged, and is closed.**
+**Issue #16 remains blocked until Issue #31 is merged and closed. Publication and
+authoritative GitHub pre-commit CI are complete.**
 
 ## CI and merge status
 
-Local status: `locally_validated_ci_pending`.
+Local/delivery status: `implementation_ci_passed_docs_refresh_pending`.
 
-Authoritative GitHub CI has not yet run on the implementation because the Pod-local
-implementation commits have not yet been published to the GitHub Issue #31 branch.
+Draft PR #33 is open at delivery head
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
 
-The next delivery stage is to publish the implementation branch through the authoritative
-GitHub write path, open a Draft PR with `Closes #31`, run authoritative CI, review the
-result, and merge only after explicit user authorization.
+Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
+attempt on implementation head
+`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. An earlier attempt exposed
+repository-wide ShellCheck findings in files outside the Issue #31 diff;
+rerunning the same head passed. The locally investigated ShellCheck wrapper
+change is not part of Issue #31.
+
+This documentation-only refresh will create a newer delivery head. That new
+head must receive a fresh authoritative CI result before merge.
+
+Pytest is unavailable in the Pod, and no pytest CI job was observed for the
+current PR head. The recorded focused unittest, smoke-contract, compile, mypy,
+repository-policy, and filesystem-smoke evidence therefore remains the relevant
+Issue #31 validation evidence.
+
+The PR remains Draft. Green CI is not merge authorization. The next delivery
+stage is final review followed by explicit user authorization before any merge.
+Issue #16 remains blocked until Issue #31 is merged and closed.
