@@ -1,0 +1,131 @@
+{
+  "base_sha": "c4d9fce61ec5a8eadc24dab8698eca7705d005bf",
+  "ci": {
+    "authoritative": true,
+    "status": "pending_pr"
+  },
+  "design_spec": "docs/superpowers/specs/2026-08-12-filesystem-kv-cache-hard-capacity-design.md",
+  "evidence_attempts": [
+    {
+      "preserved": true,
+      "run": "issue31-fs-capacity-20260812",
+      "status": "aborted_before_smoke_json"
+    },
+    {
+      "preserved": true,
+      "run": "issue31-fs-capacity-20260812-run2",
+      "status": "aborted_direct_cli_imported_installed_vllm"
+    },
+    {
+      "preserved": true,
+      "run": "issue31-fs-capacity-20260812-run3",
+      "status": "formal_pass"
+    }
+  ],
+  "filesystem_smoke": {
+    "block_size": 4096,
+    "capacity_skips": {
+      "no_evictable_capacity": 1,
+      "oversized": 1
+    },
+    "evicted_bytes": 12288,
+    "eviction_count": 3,
+    "evidence_path": "/code/results/cache/issue31-fs-capacity-20260812-run3/smoke.json",
+    "filesystem_provenance": "filesystem",
+    "final_payload_apparent_bytes": 8192,
+    "formal_run": "issue31-fs-capacity-20260812-run3",
+    "max_bytes": 12288,
+    "ownership_conflict_rejected": true,
+    "peak_accounted_bytes": 12288,
+    "peak_accounted_plus_reserved_bytes": 12288,
+    "peak_reserved_bytes": 8192,
+    "physical_filesystem": {
+      "free_bytes": 481088946176,
+      "total_bytes": 1056507072512,
+      "used_bytes": 532254969856
+    },
+    "restart_recovered_bytes": 12288,
+    "restart_recovery_ok": true,
+    "runtime_eviction_observed": true,
+    "schema_version": 1,
+    "startup_evicted_bytes": 4096,
+    "startup_eviction_count": 1,
+    "startup_shrink_ok": true,
+    "temp_peak_observed": true
+  },
+  "focused_verification": {
+    "capacity_unittest": {
+      "command": "python -m unittest discover -s tests/v1/kv_offload/tiering -p test_fs_capacity.py -q",
+      "exit_code": 0,
+      "tests": 40
+    },
+    "compileall": {
+      "exit_code": 0
+    },
+    "filesystem_smoke_contract_unittest": {
+      "command": "python -m unittest discover -s benchmarks/cache/tests -p test_issue31_fs_capacity_smoke.py -q",
+      "exit_code": 0,
+      "tests": 1
+    },
+    "git_diff_check": {
+      "exit_code": 0
+    },
+    "issue31_config_unittest": {
+      "command": "python -m unittest discover -s benchmarks/cache/tests -p test_issue31_fs_capacity_config.py -q",
+      "exit_code": 0,
+      "tests": 4
+    },
+    "pytest": {
+      "available_in_pod": false,
+      "status": "deferred_to_authoritative_github_ci"
+    },
+    "targeted_ruff": {
+      "exit_code": 0
+    }
+  },
+  "github": {
+    "draft_pr_status": "pending",
+    "implementation_branch": "agent/issue31-fs-hard-capacity",
+    "implementation_branch_head_before_publish": "eea0ff4b16711693b6f9945a4a808916990442ee",
+    "local_implementation_not_yet_published": true,
+    "repository": "zh19990906/vllm",
+    "target_branch": "main"
+  },
+  "head_sha": "949beed012b57281ae8eadd63cc8a674fb1975e0",
+  "implementation_plan": "docs/superpowers/plans/2026-08-12-issue31-filesystem-kv-cache-hard-capacity.md",
+  "interpretation": {
+    "active_restore_recompute_not_enabled_by_issue31": true,
+    "capacity_skip_is_normal_cache_degradation": true,
+    "enospc_edquot_are_real_io_failures": true,
+    "filesystem_not_claimed_as_nvme": true,
+    "physical_free_space_not_quota_authority": true
+  },
+  "issue": 31,
+  "non_goals": [
+    "cross-process quota coordinator",
+    "cost-aware admission or eviction policy (Issue #19)",
+    "active restore/recompute enforcement (Issue #16)",
+    "multi-tier placement policy (Issue #18)",
+    "adaptive capacity recommendation",
+    "physical NVMe performance claim"
+  ],
+  "observed_date": "2026-08-13",
+  "roadmap_gate": {
+    "issue16_blocked_until_issue31_merged_and_closed": true
+  },
+  "schema_version": 1,
+  "status": "locally_validated_ci_pending",
+  "validated_properties": {
+    "accounted_plus_reserved_never_exceeded_max_in_formal_smoke": true,
+    "configured_filesystem_size_is_hard_logical_ceiling": true,
+    "exclusive_namespace_ownership_observed": true,
+    "multiple_filesystem_metric_identity_locally_covered": true,
+    "no_evictable_capacity_skip_observed": true,
+    "oversized_skip_observed": true,
+    "real_temp_bytes_observed_while_reservation_held": true,
+    "restart_accounting_rebuild_observed": true,
+    "runtime_lru_eviction_observed": true,
+    "shutdown_reservation_lifecycle_locally_covered": true,
+    "smaller_max_startup_shrink_observed": true
+  }
+}
