@@ -52,6 +52,7 @@ def test_server_commands_cover_four_cache_modes(suite_config, tmp_path: Path) ->
     extra = tiered_cfg["kv_connector_extra_config"]
     assert extra["spec_name"] == "TieringOffloadingSpec"
     assert extra["secondary_tiers"][0]["type"] == "fs"
+    assert extra["secondary_tiers"][0]["max_bytes"] == 1099511627776
     assert extra["secondary_tiers"][0]["locality"] == "LOCAL"
 
 

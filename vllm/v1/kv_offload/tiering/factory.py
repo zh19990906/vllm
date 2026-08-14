@@ -30,16 +30,20 @@ class SecondaryTierFactory:
         tier_config: dict,
         primary_kv_view: memoryview,
         offloading_spec: "OffloadingSpec",
+        instance_id: str | None = None,
     ) -> SecondaryTierManager:
         tier_cls = cls.get_tier_class(tier_config)
         config = tier_config.copy()
         tier_type = config.pop("type")
-        return tier_cls(
+        tier = tier_cls(
             offloading_spec=offloading_spec,
             primary_kv_view=primary_kv_view,
             tier_type=tier_type,
             **config,
         )
+        if instance_id is not None:
+            tier.instance_id = instance_id
+        return tier
 
     @classmethod
     def get_tier_class(cls, tier_config: dict) -> type[SecondaryTierManager]:

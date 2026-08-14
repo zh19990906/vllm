@@ -150,8 +150,18 @@ def _install_import_stubs() -> tuple[ModuleType, ModuleType]:
             return _TierClass
 
         @staticmethod
-        def create_secondary_tier(tier_config, primary_kv_view, offloading_spec):
-            return SimpleNamespace(tier_type=tier_config["type"])
+        def create_secondary_tier(
+            tier_config,
+            primary_kv_view,
+            offloading_spec,
+            instance_id=None,
+        ):
+            return SimpleNamespace(
+                tier_type=tier_config["type"],
+                instance_id=(
+                    tier_config["type"] if instance_id is None else instance_id
+                ),
+            )
 
     factory.SecondaryTierFactory = _SecondaryTierFactory
     sys.modules["vllm.v1.kv_offload.tiering.factory"] = factory
@@ -286,3 +296,24 @@ def test_tiering_spec_shares_one_cost_model_with_manager() -> None:
     assert manager.kwargs["cost_model"] is model
     assert manager.kwargs["secondary_tier_keys"] == ("filesystem",)
     assert manager.kwargs["tokens_per_chunk_by_group"] == (64,)
+
+
+def test_duplicate_filesystem_tiers_get_deterministic_runtime_identity() -> None:
+    config = _config_with_shadow_model()
+    config.extra_config = dict(config.extra_config)
+    config.extra_config.pop("cache_cost_model", None)
+    config.extra_config["secondary_tiers"] = [
+        {"type": "fs"},
+        {"type": "fs"},
+    ]
+
+    spec = TieringOffloadingSpec(config)
+
+    assert spec._cost_model_tier_keys == ("fs", "fs")
+
+    manager = spec.get_manager()
+    tiers = manager.kwargs["secondary_tiers"]
+    assert [tier.instance_id for tier in tiers] == [
+        "fs:0",
+        "fs:1",
+    ]

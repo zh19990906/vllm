@@ -1,6 +1,6 @@
 # Current Engineering State
 
-Observed: **2026-08-12**.
+Observed: **2026-08-14**.
 
 This file is intentionally mutable. Verify GitHub issue, PR, branch, and commit metadata
 before acting if this file is older than the current session.
@@ -54,36 +54,45 @@ Parent roadmap: **Issue #9**.
   PR #25.
 - **Issue #14**: calibration of the shadow cost model from real measurements, completed by
   PR #26.
+- **Issue #15**: generalization validation of the frozen shadow cost model, completed by
+  PR #32.
 - **Issue #20**: repository `benchmarks/cache` pre-commit/static baseline cleanup,
   completed.
 
 ### Current P0 core work
 
-**Issue #15 remains the current primary research issue until its feature PR and
-authoritative CI complete.**
+**Issue #31 is the current P0 safety gate before Issue #16 active enforcement.**
 
-The local Issue #15 evidence matrix is now complete. The frozen Issue #14 profile fails
-unchanged under both selected new conditions:
+Issue #31 adds a bounded filesystem KV-cache tier with a required positive
+`max_bytes`, committed-plus-reserved hard-cap accounting, deterministic LRU eviction,
+read pins, restart recovery, exclusive namespace ownership, shutdown lifecycle
+invariants, and low-cardinality capacity metrics.
 
-- 7B concurrency 2: 7/8 high-confidence decisions, principal P95 macro-MAPE 44.454%;
-- 14B concurrency 1: 6/7 high-confidence decisions, principal P95 macro-MAPE 53.322%.
+The formal filesystem validation was produced from implementation head
+`949beed012b57281ae8eadd63cc8a674fb1975e0`. The latest code-bearing delivery
+head observed before this status refresh is
+`451a37fadbfc15051ea8438e7d02483b1cc6602d`. It retains the validated behavior,
+repository quality-gate remediation, final validation-document changes, and the
+PR #34 deterministic ShellCheck CI fix from current `main`. This mutable status
+refresh may create a newer documentation-only PR head; live PR metadata remains
+authoritative for the current head. Formal filesystem evidence is recorded in:
 
-C-load is explained by per-curve environment/load scale, while the 14B filesystem curve
-retains 35.600% residual MAPE after one-scalar correction and is classified as a
-curve-shape/missing-feature failure. No active restore/recompute behavior is enabled.
+[`validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md`](validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md).
 
-See:
-[`validation/2026-08-11-issue15-generalization-validation.md`](validation/2026-08-11-issue15-generalization-validation.md).
+Before this status refresh, Draft PR #33's latest code-bearing head was
+`451a37fadbfc15051ea8438e7d02483b1cc6602d`, based on
+`main@5ab0016765bfdbd2d45575908a096fbf675b3a84`. Authoritative GitHub
+pre-commit run #208 (`31761549792`) passed on that head. The PR remains Draft
+and unmerged. Any newer documentation-only head must also pass authoritative CI
+before merge; live GitHub PR metadata is authoritative for that check.
 
 ### Next P0 stage
 
-**Issue #16 remains next, but active enforcement must stay gated by the bounded
-Issue #15 eligibility map.**
+**Issue #16 remains next, but it is blocked until Issue #31 is merged and closed.**
 
-The handoff distinguishes measured C0 regions that may enter active-decision design,
-regions that first require validated online calibration, and regions that are explicitly
-ineligible because of low confidence, invalid restore provenance, or a missing model/path
-feature.
+When Issue #16 resumes, its active restore/recompute design must still respect the bounded
+eligibility map produced by Issue #15; Issue #31 changes filesystem-cache safety and does
+not widen Issue #15 eligibility.
 
 See:
 [`handoffs/2026-08-11-issue16-active-decision-handoff.md`](handoffs/2026-08-11-issue16-active-decision-handoff.md).
@@ -94,7 +103,7 @@ See:
 - **Issue #21**: permanent fix for the fake `vllm` fixture nested-newline escaping defect,
   open.
 
-Issue #17 can proceed in parallel with Issue #15. Issue #21 is maintenance and should not
+Issue #17 can proceed in parallel with Issue #31. Issue #21 is maintenance and should not
 block the main restore/recompute research path unless it directly blocks a required test.
 
 ### Later work
@@ -154,33 +163,54 @@ The consolidated progress record is:
 
 [`history/2026-08-10-to-2026-08-11-issue13-14-and-roadmap-consolidation.md`](history/2026-08-10-to-2026-08-11-issue13-14-and-roadmap-consolidation.md).
 
-## Current objective: design Issue #15 generalization validation
+## Current objective: finalize Issue #31 filesystem hard-capacity delivery
 
-## Current objective: finalize Issue #15 generalization validation delivery
+Issue #31 has completed local implementation, local filesystem validation, repository
+publication, and authoritative GitHub pre-commit CI. Remaining work is final review
+and explicit merge authorization, not additional local feature expansion.
 
-The experimental matrix has reached its pre-registered stop condition. Remaining Issue #15
-work is repository delivery and authoritative CI, not more GPU measurement.
+Current local evidence establishes:
 
-Key local evidence:
+1. configured filesystem size is a hard logical ceiling;
+2. committed plus reserved bytes remained bounded at the formal temp-file peak;
+3. runtime deterministic LRU eviction occurred with real files;
+4. both `oversized` and `no_evictable_capacity` skips were observed;
+5. restart rebuilt usage and a smaller maximum synchronously shrank the namespace;
+6. a second capacity owner for the same namespace was rejected;
+7. shutdown joins workers before releasing namespace ownership;
+8. filesystem metrics use deterministic per-instance identities;
+9. physical filesystem free space is diagnostic only and does not redefine quota;
+10. the environment is described as filesystem/container-local, not physical NVMe.
 
-1. concurrency 2 was the first materially contended 7B load and stopped the C2/C4/C8 probe;
-2. both new conditions fail fixed-profile transfer;
-3. C-load drift is scale-like for all three principal curves;
-4. 14B recompute and CPU restore are scale-like;
-5. 14B filesystem restore is shape/missing-feature limited;
-6. the 14B filesystem p4096 partial restore remains explicitly invalid;
-7. Issue #16 receives a bounded eligibility map rather than a global enablement claim.
+The accepted formal evidence is:
+
+[`validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md`](validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md)
+
+The machine-readable companion is:
+
+[`validation/2026-08-12-issue31-filesystem-hard-capacity-validation.json`](validation/2026-08-12-issue31-filesystem-hard-capacity-validation.json)
 
 ## Current continuation record
 
-Use the final Issue #15 evidence and Issue #16 handoff:
+Live GitHub `main` was observed at
+`5ab0016765bfdbd2d45575908a096fbf675b3a84`, the merge commit for PR #34.
 
-[`validation/2026-08-11-issue15-generalization-validation.md`](validation/2026-08-11-issue15-generalization-validation.md)
+Before this status refresh, Draft PR #33's latest code-bearing head was
+`451a37fadbfc15051ea8438e7d02483b1cc6602d`, whose parents are the prior
+Issue #31 delivery head and `main@5ab0016765bfdbd2d45575908a096fbf675b3a84`.
 
-[`handoffs/2026-08-11-issue16-active-decision-handoff.md`](handoffs/2026-08-11-issue16-active-decision-handoff.md)
+Authoritative GitHub pre-commit run #208 (`31761549792`) passed on that
+code-bearing head. This mutable file intentionally does not recursively encode
+the SHA or CI run of its own documentation-only refresh. Live PR #33 metadata
+is authoritative for the current head and the latest authoritative CI result.
+Merge remains gated on authoritative CI for whatever head is current at merge
+time, final review, and explicit user authorization.
 
-Issue #15 is not described as completed until its feature PR, authoritative GitHub CI, and
-close criteria are satisfied. Active restore/recompute enforcement remains Issue #16 work.
+Pytest is unavailable in the Pod, and no pytest CI job was observed for PR #33.
+Focused Issue #31 unittest, smoke-contract, mypy, repository policy, compile,
+and formal real-filesystem evidence remain recorded in the validation artifact.
+
+Issue #16 remains blocked until Issue #31 is merged and closed.
 
 ## Important interpretation rules
 

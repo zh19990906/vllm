@@ -172,6 +172,7 @@ def _offloading_config(case: ExecutionCase, config: SuiteConfig) -> dict:
     if case.cache_mode is CacheMode.TIERED_FS:
         if case.filesystem_cache_dir is None:
             raise ValueError("tiered filesystem case requires a cache directory")
+        assert config.cache.filesystem.max_bytes is not None
         extra.update(
             {
                 "spec_name": "TieringOffloadingSpec",
@@ -179,6 +180,7 @@ def _offloading_config(case: ExecutionCase, config: SuiteConfig) -> dict:
                     {
                         "type": "fs",
                         "root_dir": str(case.filesystem_cache_dir),
+                        "max_bytes": config.cache.filesystem.max_bytes,
                         "n_read_threads": config.cache.filesystem.read_threads,
                         "n_write_threads": config.cache.filesystem.write_threads,
                         "locality": "LOCAL",

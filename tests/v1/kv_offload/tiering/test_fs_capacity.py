@@ -1,0 +1,1466 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
+import os
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from vllm.v1.kv_offload.tiering.fs import io as fs_io
+from vllm.v1.kv_offload.tiering.fs import manager as fs_manager
+from vllm.v1.kv_offload.tiering.fs.capacity import (
+    AdmissionStatus,
+    FileSystemCapacityManager,
+)
+
+
+def managed_path(
+    root: Path,
+    hash_hex: str = "0011223344556677",
+    group: int = 0,
+) -> Path:
+    path = root / hash_hex[:3] / f"{hash_hex[3:5]}_g{group}" / f"{hash_hex}.bin"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+class FileSystemCapacityManagerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def manager(
+        self,
+        max_bytes: int,
+        expected_file_size: int | None = None,
+    ) -> FileSystemCapacityManager:
+        return FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=max_bytes,
+            expected_file_size=expected_file_size,
+        )
+
+    def commit_existing(
+        self,
+        cap: FileSystemCapacityManager,
+        path: Path,
+        size: int,
+    ) -> None:
+        result = cap.admit_write(str(path), size)
+        self.assertEqual(result.status, AdmissionStatus.RESERVED)
+        path.write_bytes(b"x" * size)
+        cap.commit_write(result.reservation)
+
+    def test_new_write_reserves_before_commit(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            path = managed_path(self.root)
+            result = cap.admit_write(str(path), 40)
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            self.assertEqual(cap.snapshot().reserved_bytes, 40)
+            self.assertEqual(cap.snapshot().accounted_bytes, 0)
+
+            path.write_bytes(b"x" * 40)
+            cap.commit_write(result.reservation)
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 0),
+            )
+            self.assertLessEqual(
+                snap.accounted_bytes + snap.reserved_bytes,
+                100,
+            )
+
+    def test_abort_is_idempotent(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            result = cap.admit_write(
+                str(managed_path(self.root)),
+                40,
+            )
+            cap.abort_write(result.reservation)
+            cap.abort_write(result.reservation)
+
+            self.assertEqual(cap.snapshot().reserved_bytes, 0)
+
+    def test_oversized_does_not_reserve(self) -> None:
+        with self.manager(max_bytes=32) as cap:
+            result = cap.admit_write(
+                str(managed_path(self.root)),
+                64,
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.OVERSIZED)
+            self.assertIsNone(result.reservation)
+            self.assertEqual(cap.snapshot().reserved_bytes, 0)
+            self.assertEqual(cap.snapshot().accounted_bytes, 0)
+
+    def test_duplicate_inflight_has_one_reservation(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            path = str(managed_path(self.root))
+
+            first = cap.admit_write(path, 40)
+            second = cap.admit_write(path, 40)
+
+            self.assertEqual(first.status, AdmissionStatus.RESERVED)
+            self.assertEqual(
+                second.status,
+                AdmissionStatus.DUPLICATE_INFLIGHT,
+            )
+            self.assertIsNone(second.reservation)
+            self.assertEqual(cap.snapshot().reserved_bytes, 40)
+
+    def test_committed_same_key_is_already_present(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            path = managed_path(self.root)
+            self.commit_existing(cap, path, 40)
+
+            result = cap.admit_write(str(path), 40)
+
+            self.assertEqual(
+                result.status,
+                AdmissionStatus.ALREADY_PRESENT,
+            )
+            self.assertIsNone(result.reservation)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 0),
+            )
+
+    def test_same_size_replacement_reserves_full_new_size(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            path = managed_path(self.root)
+            self.commit_existing(cap, path, 40)
+
+            result = cap.admit_write(
+                str(path),
+                40,
+                replace=True,
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 40),
+            )
+
+            path.write_bytes(b"y" * 40)
+            cap.commit_write(result.reservation)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 0),
+            )
+
+    def test_larger_replacement_reserves_full_new_size(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            path = managed_path(self.root)
+            self.commit_existing(cap, path, 20)
+
+            result = cap.admit_write(
+                str(path),
+                40,
+                replace=True,
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (20, 40),
+            )
+
+            path.write_bytes(b"y" * 40)
+            cap.commit_write(result.reservation)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 0),
+            )
+
+    def test_smaller_replacement_reserves_full_new_size(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            path = managed_path(self.root)
+            self.commit_existing(cap, path, 40)
+
+            result = cap.admit_write(
+                str(path),
+                20,
+                replace=True,
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 20),
+            )
+
+            path.write_bytes(b"y" * 20)
+            cap.commit_write(result.reservation)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (20, 0),
+            )
+
+    def test_existing_final_is_recovered_for_replacement(self) -> None:
+        path = managed_path(self.root)
+        path.write_bytes(b"x" * 30)
+
+        with self.manager(max_bytes=100) as cap:
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (30, 0),
+            )
+
+            result = cap.admit_write(
+                str(path),
+                40,
+                replace=True,
+            )
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (30, 40),
+            )
+
+            path.write_bytes(b"y" * 40)
+            cap.commit_write(result.reservation)
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 0),
+            )
+
+    def test_replacement_abort_preserves_old_accounting(self) -> None:
+        path = managed_path(self.root)
+        path.write_bytes(b"x" * 30)
+
+        with self.manager(max_bytes=100) as cap:
+            result = cap.admit_write(
+                str(path),
+                40,
+                replace=True,
+            )
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+
+            cap.abort_write(result.reservation)
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (30, 0),
+            )
+
+    def test_capacity_reject_does_not_reserve(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            first = managed_path(self.root)
+            first_result = cap.admit_write(str(first), 70)
+            self.assertEqual(
+                first_result.status,
+                AdmissionStatus.RESERVED,
+            )
+
+            second = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+            result = cap.admit_write(str(second), 40)
+
+            self.assertEqual(result.status, AdmissionStatus.CAPACITY)
+            self.assertIsNone(result.reservation)
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (0, 70),
+            )
+
+    def test_new_admission_reaps_orphan_and_releases_charge(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            first = managed_path(self.root)
+            first_result = cap.admit_write(str(first), 60)
+            self.assertEqual(
+                first_result.status,
+                AdmissionStatus.RESERVED,
+            )
+
+            temp_path = f"{first}_7.tmp"
+            Path(temp_path).write_bytes(b"x" * 20)
+            cap.retain_orphan_temp(
+                first_result.reservation,
+                temp_path,
+            )
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.reserved_bytes, 60)
+            self.assertEqual(snap.orphan_temp_count, 1)
+
+            second = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+            second_result = cap.admit_write(str(second), 60)
+
+            self.assertEqual(
+                second_result.status,
+                AdmissionStatus.RESERVED,
+            )
+            self.assertFalse(Path(temp_path).exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.reserved_bytes, 60)
+            self.assertEqual(snap.orphan_temp_count, 0)
+
+    def test_orphan_temp_retains_reservation_charge(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            path = managed_path(self.root)
+            result = cap.admit_write(str(path), 40)
+            temp_path = f"{path}.tmp-orphan"
+            Path(temp_path).write_bytes(b"x" * 40)
+
+            cap.retain_orphan_temp(
+                result.reservation,
+                temp_path,
+            )
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.accounted_bytes, 0)
+            self.assertEqual(snap.reserved_bytes, 40)
+            self.assertEqual(snap.orphan_temp_count, 1)
+
+    def test_contains_many_reports_only_committed_entries(self) -> None:
+        present = managed_path(self.root)
+        present.write_bytes(b"x" * 20)
+        missing = managed_path(
+            self.root,
+            hash_hex="1111223344556677",
+        )
+
+        with self.manager(max_bytes=100) as cap:
+            self.assertTrue(cap.contains(str(present)))
+            self.assertFalse(cap.contains(str(missing)))
+            self.assertEqual(
+                cap.contains_many([str(present), str(missing)]),
+                [True, False],
+            )
+
+    def test_touch_changes_lru_victim(self) -> None:
+        first = managed_path(
+            self.root,
+            hash_hex="0011223344556677",
+        )
+        second = managed_path(
+            self.root,
+            hash_hex="1111223344556677",
+        )
+        third = managed_path(
+            self.root,
+            hash_hex="2221223344556677",
+        )
+
+        for path in (first, second, third):
+            path.write_bytes(b"x" * 30)
+
+        os.utime(first, ns=(1, 1))
+        os.utime(second, ns=(2, 2))
+        os.utime(third, ns=(3, 3))
+
+        with self.manager(max_bytes=90) as cap:
+            # first starts as oldest; touching it must make second oldest.
+            cap.touch([str(first)])
+
+            incoming = managed_path(
+                self.root,
+                hash_hex="3331223344556677",
+            )
+            result = cap.admit_write(str(incoming), 30)
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            self.assertTrue(first.exists())
+            self.assertFalse(second.exists())
+            self.assertTrue(third.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (60, 30),
+            )
+
+    def test_pinned_only_victim_blocks_eviction_until_release(self) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 80)
+
+        with self.manager(max_bytes=80) as cap:
+            pin = cap.pin_for_read(str(victim))
+            self.assertIsNotNone(pin)
+
+            incoming = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+            blocked = cap.admit_write(str(incoming), 40)
+
+            self.assertEqual(blocked.status, AdmissionStatus.CAPACITY)
+            self.assertTrue(victim.exists())
+
+            cap.release_read(pin)
+
+            admitted = cap.admit_write(str(incoming), 40)
+            self.assertEqual(admitted.status, AdmissionStatus.RESERVED)
+            self.assertFalse(victim.exists())
+
+    def test_release_read_with_invalidate_unlinks_and_unaccounts(self) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 40)
+
+        with self.manager(max_bytes=100) as cap:
+            pin = cap.pin_for_read(str(victim))
+            self.assertIsNotNone(pin)
+
+            cap.release_read(pin, invalidate=True)
+
+            self.assertFalse(cap.contains(str(victim)))
+            self.assertFalse(victim.exists())
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (0, 0),
+            )
+
+    def test_invalidate_unlink_failure_keeps_entry_accounted_and_invisible(
+        self,
+    ) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 40)
+
+        with self.manager(max_bytes=40) as cap:
+            pin = cap.pin_for_read(str(victim))
+            self.assertIsNotNone(pin)
+
+            with (
+                self.assertLogs(
+                    "vllm.v1.kv_offload.tiering.fs.capacity",
+                    level="WARNING",
+                ) as logs,
+                mock.patch(
+                    "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                    side_effect=PermissionError("injected invalid cleanup failure"),
+                ),
+            ):
+                cap.release_read(pin, invalidate=True)
+
+            self.assertTrue(
+                any(
+                    "failed to remove invalid filesystem KV cache entry" in message
+                    for message in logs.output
+                )
+            )
+
+            # INVALID entries remain conservatively accounted, but can no
+            # longer be observed or pinned as cache hits.
+            self.assertFalse(cap.contains(str(victim)))
+            self.assertIsNone(cap.pin_for_read(str(victim)))
+            self.assertTrue(victim.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 0),
+            )
+
+            incoming = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+            result = cap.admit_write(str(incoming), 1)
+            self.assertEqual(result.status, AdmissionStatus.CAPACITY)
+            self.assertIsNone(result.reservation)
+
+    def test_failed_oldest_unlink_tries_later_victim(self) -> None:
+        oldest = managed_path(
+            self.root,
+            hash_hex="0011223344556677",
+        )
+        later = managed_path(
+            self.root,
+            hash_hex="1111223344556677",
+        )
+        oldest.write_bytes(b"x" * 40)
+        later.write_bytes(b"x" * 40)
+        os.utime(oldest, ns=(1, 1))
+        os.utime(later, ns=(2, 2))
+
+        with self.manager(max_bytes=80) as cap:
+            incoming = managed_path(
+                self.root,
+                hash_hex="2221223344556677",
+            )
+            real_unlink = os.unlink
+
+            def selective_unlink(path: str) -> None:
+                if os.path.abspath(path) == os.path.abspath(oldest):
+                    raise PermissionError("injected eviction failure")
+                real_unlink(path)
+
+            with (
+                self.assertLogs(
+                    "vllm.v1.kv_offload.tiering.fs.capacity",
+                    level="WARNING",
+                ) as logs,
+                mock.patch(
+                    "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                    side_effect=selective_unlink,
+                ),
+            ):
+                result = cap.admit_write(str(incoming), 40)
+
+            self.assertTrue(
+                any(
+                    "failed to evict filesystem KV cache entry" in message
+                    for message in logs.output
+                )
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.RESERVED)
+            self.assertTrue(oldest.exists())
+            self.assertFalse(later.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (40, 40),
+            )
+
+    def test_all_victims_unavailable_returns_capacity(self) -> None:
+        victim = managed_path(self.root)
+        victim.write_bytes(b"x" * 80)
+
+        with self.manager(max_bytes=80) as cap:
+            incoming = managed_path(
+                self.root,
+                hash_hex="1111223344556677",
+            )
+
+            with (
+                self.assertLogs(
+                    "vllm.v1.kv_offload.tiering.fs.capacity",
+                    level="WARNING",
+                ) as logs,
+                mock.patch(
+                    "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                    side_effect=PermissionError("injected eviction failure"),
+                ),
+            ):
+                result = cap.admit_write(str(incoming), 40)
+
+            self.assertTrue(
+                any(
+                    "failed to evict filesystem KV cache entry" in message
+                    for message in logs.output
+                )
+            )
+
+            self.assertEqual(result.status, AdmissionStatus.CAPACITY)
+            self.assertIsNone(result.reservation)
+            self.assertTrue(victim.exists())
+
+            snap = cap.snapshot()
+            self.assertEqual(
+                (snap.accounted_bytes, snap.reserved_bytes),
+                (80, 0),
+            )
+
+    def test_concurrent_admission_never_exceeds_capacity(self) -> None:
+        with self.manager(max_bytes=100) as cap:
+            barrier = threading.Barrier(3)
+            statuses: list[AdmissionStatus] = []
+            observed_totals: list[int] = []
+            result_lock = threading.Lock()
+
+            paths = (
+                managed_path(
+                    self.root,
+                    hash_hex="0011223344556677",
+                ),
+                managed_path(
+                    self.root,
+                    hash_hex="1111223344556677",
+                ),
+            )
+
+            def worker(path: Path) -> None:
+                barrier.wait()
+                result = cap.admit_write(str(path), 60)
+                snap = cap.snapshot()
+                with result_lock:
+                    statuses.append(result.status)
+                    observed_totals.append(snap.accounted_bytes + snap.reserved_bytes)
+
+            threads = [threading.Thread(target=worker, args=(path,)) for path in paths]
+            for thread in threads:
+                thread.start()
+
+            barrier.wait()
+
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(
+                sorted(status.value for status in statuses),
+                sorted(
+                    [
+                        AdmissionStatus.RESERVED.value,
+                        AdmissionStatus.CAPACITY.value,
+                    ]
+                ),
+            )
+            self.assertTrue(observed_totals)
+            self.assertTrue(all(total <= 100 for total in observed_totals))
+
+    def test_raw_load_failure_does_not_delete_final(self) -> None:
+        final_path = managed_path(self.root)
+        final_path.write_bytes(b"x" * 4)
+        target = bytearray(8)
+
+        with (
+            mock.patch.object(
+                fs_io.os,
+                "open",
+                side_effect=FileNotFoundError("injected read failure"),
+            ),
+            mock.patch.object(fs_io.os, "remove") as remove,
+            self.assertRaises(FileNotFoundError),
+        ):
+            fs_io.load_block(
+                str(final_path),
+                memoryview(target),
+                0,
+                4,
+            )
+
+        remove.assert_not_called()
+        self.assertTrue(final_path.exists())
+
+    def test_raw_store_uses_caller_supplied_temp_path(self) -> None:
+        final_path = managed_path(self.root)
+        temp_path = Path(f"{final_path}_123.tmp")
+        payload = bytearray(b"abcdefgh")
+
+        opened_paths: list[str] = []
+
+        def fake_open(path: str, flags: int, mode: int = 0o777) -> int:
+            opened_paths.append(path)
+            return 17
+
+        with (
+            mock.patch.object(
+                fs_io.os,
+                "open",
+                side_effect=fake_open,
+            ),
+            mock.patch.object(
+                fs_io.os,
+                "write",
+                return_value=4,
+            ),
+            mock.patch.object(fs_io.os, "close"),
+            mock.patch.object(fs_io.os, "replace") as replace,
+            mock.patch.object(
+                fs_io,
+                "_ensure_dirs",
+            ) as ensure_dirs,
+            mock.patch.object(
+                fs_io.os.path,
+                "exists",
+                side_effect=AssertionError(
+                    "raw store must not check destination existence"
+                ),
+            ),
+        ):
+            fs_io.store_block(
+                str(final_path),
+                str(temp_path),
+                memoryview(payload),
+                0,
+                4,
+            )
+
+        ensure_dirs.assert_called_once_with(str(final_path))
+
+        self.assertEqual(opened_paths, [str(temp_path)])
+        replace.assert_called_once_with(
+            str(temp_path),
+            str(final_path),
+        )
+
+    def test_raw_store_failure_leaves_temp_cleanup_to_manager(self) -> None:
+        final_path = managed_path(self.root)
+        temp_path = Path(f"{final_path}_456.tmp")
+        payload = bytearray(b"abcdefgh")
+
+        with (
+            mock.patch.object(fs_io.os, "open", return_value=17),
+            mock.patch.object(
+                fs_io.os,
+                "write",
+                side_effect=OSError("injected write failure"),
+            ),
+            mock.patch.object(fs_io.os, "close"),
+            mock.patch.object(fs_io.os, "remove") as remove,
+            self.assertRaisesRegex(
+                OSError,
+                "injected write failure",
+            ),
+        ):
+            fs_io.store_block(
+                str(final_path),
+                str(temp_path),
+                memoryview(payload),
+                0,
+                4,
+            )
+
+        # Raw I/O must not make reservation/accounting cleanup decisions.
+        remove.assert_not_called()
+
+    def test_make_temp_path_matches_restart_recognized_shape(self) -> None:
+        final_path = managed_path(self.root)
+
+        temp_path = fs_io.make_temp_path(str(final_path))
+
+        self.assertTrue(temp_path.startswith(f"{final_path}_"))
+        self.assertTrue(temp_path.endswith(".tmp"))
+        suffix = temp_path[len(str(final_path)) + 1 : -4]
+        self.assertTrue(suffix.isdigit())
+
+    def test_store_cleanup_failure_retains_orphan_reservation(
+        self,
+    ) -> None:
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
+        manager._capacity = mock.MagicMock()
+
+        reservation = object()
+        admission = mock.MagicMock()
+        admission.status = AdmissionStatus.RESERVED
+        admission.reservation = reservation
+        manager._capacity.admit_write.return_value = admission
+
+        final_path = str(managed_path(self.root))
+        temp_path = f"{final_path}_999.tmp"
+
+        with (
+            mock.patch.object(
+                fs_manager,
+                "make_temp_path",
+                return_value=temp_path,
+            ),
+            mock.patch.object(
+                fs_manager,
+                "store_block",
+                side_effect=OSError("injected store failure"),
+            ),
+            mock.patch.object(
+                fs_manager.os,
+                "unlink",
+                side_effect=PermissionError("injected temp cleanup failure"),
+            ),
+            self.assertRaisesRegex(
+                OSError,
+                "injected store failure",
+            ),
+        ):
+            manager._store_one(
+                final_path,
+                0,
+                None,
+                0,
+            )
+
+        manager._capacity.retain_orphan_temp.assert_called_once_with(
+            reservation,
+            temp_path,
+        )
+        manager._capacity.abort_write.assert_not_called()
+
+    def test_bounded_lookup_uses_capacity_membership_only(self) -> None:
+        lookup = object.__new__(fs_manager.FsAsyncLookupManager)
+        tier = mock.MagicMock()
+        lookup._tier = tier
+
+        keys = [object(), object()]
+        paths = ["/cache/a.bin", "/cache/b.bin"]
+        tier.file_mapper.get_file_name.side_effect = paths
+        tier._capacity.contains_many.return_value = [True, False]
+
+        with mock.patch.object(
+            fs_manager.os.path,
+            "exists",
+            side_effect=AssertionError("bounded lookup must not use os.path.exists"),
+        ):
+            result = list(
+                lookup.batch_lookup(
+                    keys,
+                    mock.MagicMock(),
+                )
+            )
+
+        self.assertEqual(result, [True, False])
+        tier._capacity.contains_many.assert_called_once_with(paths)
+
+    def test_load_one_revalidates_pin_before_filesystem_io(self) -> None:
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager._capacity = mock.MagicMock()
+        manager._capacity.pin_for_read.return_value = None
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
+        final_path = str(managed_path(self.root))
+
+        with (
+            mock.patch.object(
+                fs_manager,
+                "load_block",
+            ) as load,
+            self.assertRaisesRegex(
+                FileNotFoundError,
+                "no longer committed",
+            ),
+        ):
+            manager._load_one(final_path, 0)
+
+        load.assert_not_called()
+        manager._capacity.pin_for_read.assert_called_once_with(final_path)
+
+    def test_load_one_releases_pin_after_success(self) -> None:
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        pin = object()
+        manager._capacity = mock.MagicMock()
+        manager._capacity.pin_for_read.return_value = pin
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
+        final_path = str(managed_path(self.root))
+
+        with mock.patch.object(
+            fs_manager,
+            "load_block",
+        ) as load:
+            manager._load_one(final_path, 0)
+
+        load.assert_called_once_with(
+            final_path,
+            manager._primary_kv_view,
+            0,
+            4,
+        )
+        manager._capacity.release_read.assert_called_once_with(pin)
+
+    def test_load_one_failure_invalidates_through_capacity(self) -> None:
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        pin = object()
+        manager._capacity = mock.MagicMock()
+        manager._capacity.pin_for_read.return_value = pin
+        manager._block_size = 4
+        manager._primary_kv_view = memoryview(bytearray(b"abcdefgh"))
+        final_path = str(managed_path(self.root))
+
+        with (
+            mock.patch.object(
+                fs_manager,
+                "load_block",
+                side_effect=OSError("injected read failure"),
+            ),
+            self.assertRaisesRegex(
+                OSError,
+                "injected read failure",
+            ),
+        ):
+            manager._load_one(final_path, 0)
+
+        manager._capacity.release_read.assert_called_once_with(
+            pin,
+            invalidate=True,
+        )
+
+    def test_touch_updates_capacity_lru_without_filesystem_metadata_io(
+        self,
+    ) -> None:
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager.file_mapper = mock.MagicMock()
+        manager._capacity = mock.MagicMock()
+
+        keys = [object(), object()]
+        paths = ["/cache/a.bin", "/cache/b.bin"]
+        manager.file_mapper.get_file_name.side_effect = paths
+
+        with (
+            mock.patch.object(
+                fs_manager.os,
+                "stat",
+                side_effect=AssertionError("touch must not stat filesystem entries"),
+            ),
+            mock.patch.object(
+                fs_manager.os,
+                "utime",
+                side_effect=AssertionError("touch must not mutate file mtime"),
+            ),
+        ):
+            manager.touch(
+                keys,
+                mock.MagicMock(),
+            )
+
+        manager._capacity.touch.assert_called_once_with(paths)
+
+    def test_runtime_eviction_updates_capacity_counters(self) -> None:
+        first = managed_path(
+            self.root,
+            "0011223344556677",
+        )
+        second = managed_path(
+            self.root,
+            "aabbccddeeff0011",
+        )
+
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=4,
+            expected_file_size=None,
+        ) as cap:
+            first_admission = cap.admit_write(str(first), 4)
+            self.assertEqual(
+                first_admission.status,
+                AdmissionStatus.RESERVED,
+            )
+            first.write_bytes(b"a" * 4)
+            cap.commit_write(first_admission.reservation)
+
+            second_admission = cap.admit_write(str(second), 4)
+            self.assertEqual(
+                second_admission.status,
+                AdmissionStatus.RESERVED,
+            )
+            second.write_bytes(b"b" * 4)
+            cap.commit_write(second_admission.reservation)
+
+            snapshot = cap.snapshot()
+            self.assertEqual(snapshot.eviction_count, 1)
+            self.assertEqual(snapshot.evicted_bytes, 4)
+
+    def test_restart_shrink_updates_capacity_counters(self) -> None:
+        first = managed_path(
+            self.root,
+            "0011223344556677",
+        )
+        second = managed_path(
+            self.root,
+            "aabbccddeeff0011",
+        )
+        first.write_bytes(b"a" * 4)
+        second.write_bytes(b"b" * 4)
+
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=4,
+            expected_file_size=4,
+        ) as cap:
+            snapshot = cap.snapshot()
+            self.assertEqual(snapshot.accounted_bytes, 4)
+            self.assertEqual(snapshot.eviction_count, 1)
+            self.assertEqual(snapshot.evicted_bytes, 4)
+
+    def test_filesystem_metric_definition_contract(self) -> None:
+        from vllm.v1.kv_offload.base import (
+            OffloadingCounterMetadata,
+            OffloadingGaugeMetadata,
+        )
+
+        definitions = fs_manager.FileSystemTierManager.build_metric_definitions({})
+
+        gauge_names = {
+            "vllm:kv_offload_fs_capacity_bytes",
+            "vllm:kv_offload_fs_accounted_bytes",
+            "vllm:kv_offload_fs_reserved_bytes",
+        }
+        counter_names = {
+            "vllm:kv_offload_fs_evictions",
+            "vllm:kv_offload_fs_evicted_bytes",
+            "vllm:kv_offload_fs_capacity_skips",
+            "vllm:kv_offload_fs_eviction_failures",
+        }
+
+        self.assertEqual(
+            set(definitions),
+            gauge_names | counter_names,
+        )
+
+        for name in gauge_names:
+            self.assertIsInstance(
+                definitions[name],
+                OffloadingGaugeMetadata,
+            )
+            self.assertEqual(
+                definitions[name].labelnames,
+                ("tier",),
+            )
+
+        for name in {
+            "vllm:kv_offload_fs_evictions",
+            "vllm:kv_offload_fs_evicted_bytes",
+            "vllm:kv_offload_fs_eviction_failures",
+        }:
+            self.assertIsInstance(
+                definitions[name],
+                OffloadingCounterMetadata,
+            )
+            self.assertEqual(
+                definitions[name].labelnames,
+                ("tier",),
+            )
+
+        skip = definitions["vllm:kv_offload_fs_capacity_skips"]
+        self.assertIsInstance(skip, OffloadingCounterMetadata)
+        self.assertEqual(
+            skip.labelnames,
+            ("tier", "reason"),
+        )
+
+    def test_filesystem_stats_emit_gauges_and_positive_counter_deltas(
+        self,
+    ) -> None:
+        class FakeCapacity:
+            def __init__(self, snapshots):
+                self._snapshots = iter(snapshots)
+
+            def snapshot(self):
+                return next(self._snapshots)
+
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager.instance_id = "fs:0"
+        manager._last_capacity_counters = (
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        manager._capacity = FakeCapacity(
+            [
+                SimpleNamespace(
+                    max_bytes=100,
+                    accounted_bytes=40,
+                    reserved_bytes=10,
+                    eviction_count=3,
+                    evicted_bytes=60,
+                    oversized_skip_count=2,
+                    capacity_skip_count=4,
+                    eviction_failure_count=1,
+                ),
+                SimpleNamespace(
+                    max_bytes=100,
+                    accounted_bytes=50,
+                    reserved_bytes=0,
+                    eviction_count=3,
+                    evicted_bytes=60,
+                    oversized_skip_count=2,
+                    capacity_skip_count=4,
+                    eviction_failure_count=1,
+                ),
+                SimpleNamespace(
+                    max_bytes=100,
+                    accounted_bytes=30,
+                    reserved_bytes=20,
+                    eviction_count=5,
+                    evicted_bytes=100,
+                    oversized_skip_count=3,
+                    capacity_skip_count=7,
+                    eviction_failure_count=2,
+                ),
+            ]
+        )
+
+        first = manager.get_stats()
+        self.assertIsNotNone(first)
+        first_data = first.data["data"]
+
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_capacity_bytes"],
+            {("fs:0",): 100},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_accounted_bytes"],
+            {("fs:0",): 40},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_reserved_bytes"],
+            {("fs:0",): 10},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_evictions"],
+            {("fs:0",): 3},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_evicted_bytes"],
+            {("fs:0",): 60},
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_capacity_skips"],
+            {
+                ("fs:0", "oversized"): 2,
+                ("fs:0", "no_evictable_capacity"): 4,
+            },
+        )
+        self.assertEqual(
+            first_data["vllm:kv_offload_fs_eviction_failures"],
+            {("fs:0",): 1},
+        )
+
+        second = manager.get_stats()
+        self.assertIsNotNone(second)
+        second_data = second.data["data"]
+
+        self.assertEqual(
+            second_data["vllm:kv_offload_fs_accounted_bytes"],
+            {("fs:0",): 50},
+        )
+        self.assertEqual(
+            second_data["vllm:kv_offload_fs_reserved_bytes"],
+            {("fs:0",): 0},
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_evictions",
+            second_data,
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_evicted_bytes",
+            second_data,
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_capacity_skips",
+            second_data,
+        )
+        self.assertNotIn(
+            "vllm:kv_offload_fs_eviction_failures",
+            second_data,
+        )
+
+        third = manager.get_stats()
+        self.assertIsNotNone(third)
+        third_data = third.data["data"]
+
+        self.assertEqual(
+            third_data["vllm:kv_offload_fs_evictions"],
+            {("fs:0",): 2},
+        )
+        self.assertEqual(
+            third_data["vllm:kv_offload_fs_evicted_bytes"],
+            {("fs:0",): 40},
+        )
+        self.assertEqual(
+            third_data["vllm:kv_offload_fs_capacity_skips"],
+            {
+                ("fs:0", "oversized"): 1,
+                ("fs:0", "no_evictable_capacity"): 3,
+            },
+        )
+        self.assertEqual(
+            third_data["vllm:kv_offload_fs_eviction_failures"],
+            {("fs:0",): 1},
+        )
+
+    def test_multi_filesystem_stats_keep_instance_labels_distinct(
+        self,
+    ) -> None:
+        from vllm.distributed.kv_transfer.kv_connector.v1.offloading.metrics import (
+            OffloadingConnectorStats,
+        )
+
+        snapshot = SimpleNamespace(
+            max_bytes=100,
+            accounted_bytes=40,
+            reserved_bytes=0,
+            eviction_count=0,
+            evicted_bytes=0,
+            oversized_skip_count=0,
+            capacity_skip_count=0,
+            eviction_failure_count=0,
+        )
+
+        managers = []
+        for instance_id in ("fs:0", "fs:1"):
+            manager = object.__new__(fs_manager.FileSystemTierManager)
+            manager.instance_id = instance_id
+            manager._last_capacity_counters = (
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+            manager._capacity = mock.MagicMock()
+            manager._capacity.snapshot.return_value = snapshot
+            managers.append(manager)
+
+        aggregate = OffloadingConnectorStats()
+        for manager in managers:
+            stats = manager.get_stats()
+            self.assertIsNotNone(stats)
+            aggregate.aggregate(stats)
+
+        self.assertEqual(
+            aggregate.data["data"]["vllm:kv_offload_fs_capacity_bytes"],
+            {
+                ("fs:0",): 100,
+                ("fs:1",): 100,
+            },
+        )
+
+    def test_factory_instance_id_defaults_and_override(self) -> None:
+        from vllm.v1.kv_offload.tiering.factory import (
+            SecondaryTierFactory,
+        )
+
+        primary = mock.MagicMock()
+        spec = mock.MagicMock()
+
+        default_tier = SecondaryTierFactory.create_secondary_tier(
+            {"type": "example"},
+            primary,
+            spec,
+        )
+        self.assertEqual(
+            default_tier.instance_id,
+            "example",
+        )
+
+        explicit_tier = SecondaryTierFactory.create_secondary_tier(
+            {"type": "example"},
+            primary,
+            spec,
+            instance_id="example:3",
+        )
+        self.assertEqual(
+            explicit_tier.instance_id,
+            "example:3",
+        )
+
+    def test_shutdown_rejects_surviving_non_orphan_reservation(
+        self,
+    ) -> None:
+        path = managed_path(self.root)
+
+        cap = FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        )
+        admission = cap.admit_write(str(path), 40)
+        self.assertEqual(admission.status, AdmissionStatus.RESERVED)
+
+        order: list[str | tuple[str, bool]] = []
+
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager._lookup_manager = mock.MagicMock()
+        manager._lookup_manager.shutdown.side_effect = lambda: order.append("lookup")
+        manager._pool = mock.MagicMock()
+        manager._pool.shutdown.side_effect = lambda wait=True: order.append(
+            ("pool", wait)
+        )
+
+        real_close = cap.close
+
+        def close_capacity():
+            order.append("capacity")
+            real_close()
+
+        cap.close = close_capacity
+        manager._capacity = cap
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            "pending filesystem capacity reservation",
+        ):
+            manager.shutdown()
+
+        self.assertEqual(
+            order,
+            ["lookup", ("pool", True), "capacity"],
+        )
+
+        # Even invariant failure must not leak namespace ownership.
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        ):
+            pass
+
+    def test_shutdown_surfaces_surviving_orphan_reservation(
+        self,
+    ) -> None:
+        final_path = managed_path(self.root)
+        temp_path = Path(f"{final_path}_123.tmp")
+
+        cap = FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        )
+        admission = cap.admit_write(str(final_path), 40)
+        self.assertEqual(admission.status, AdmissionStatus.RESERVED)
+
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path.write_bytes(b"x" * 40)
+        cap.retain_orphan_temp(
+            admission.reservation,
+            str(temp_path),
+        )
+
+        manager = object.__new__(fs_manager.FileSystemTierManager)
+        manager._lookup_manager = mock.MagicMock()
+        manager._pool = mock.MagicMock()
+        manager._capacity = cap
+
+        with (
+            mock.patch(
+                "vllm.v1.kv_offload.tiering.fs.capacity.os.unlink",
+                side_effect=PermissionError("injected orphan cleanup failure"),
+            ),
+            self.assertLogs(
+                "vllm.v1.kv_offload.tiering.fs.manager",
+                level="WARNING",
+            ) as logs,
+        ):
+            manager.shutdown()
+
+        snap = cap.snapshot()
+        self.assertEqual(snap.pending_write_count, 0)
+        self.assertEqual(snap.orphan_temp_count, 1)
+        self.assertEqual(snap.reserved_bytes, 40)
+        self.assertTrue(
+            any("orphan" in line.lower() for line in logs.output),
+            logs.output,
+        )
+
+        # close() released ownership even though cleanup failed.
+        # Restart owns cleanup once the injected unlink failure is gone.
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=100,
+            expected_file_size=None,
+        ) as recovered:
+            recovered_snap = recovered.snapshot()
+            self.assertEqual(recovered_snap.reserved_bytes, 0)
+            self.assertEqual(recovered_snap.orphan_temp_count, 0)
+
+        self.assertFalse(temp_path.exists())
+
+    def test_queued_tasks_do_not_reserve_before_worker_start(
+        self,
+    ) -> None:
+        from vllm.v1.kv_offload.tiering.fs.thread_pool import (
+            DualQueueThreadPool,
+        )
+
+        cap = FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=120,
+            expected_file_size=None,
+        )
+        pool = DualQueueThreadPool(
+            n_read_threads=0,
+            n_write_threads=1,
+        )
+
+        active_started = threading.Event()
+        release_active = threading.Event()
+        queued_started = []
+
+        paths = [
+            managed_path(self.root, "0011223344556677"),
+            managed_path(self.root, "1122334455667788"),
+            managed_path(self.root, "2233445566778899"),
+        ]
+
+        def active_task():
+            result = cap.admit_write(str(paths[0]), 40)
+            self.assertEqual(
+                result.status,
+                AdmissionStatus.RESERVED,
+            )
+            active_started.set()
+            if not release_active.wait(timeout=5):
+                raise RuntimeError("active task barrier timed out")
+            cap.abort_write(result.reservation)
+
+        def queued_task(path):
+            queued_started.append(str(path))
+            result = cap.admit_write(str(path), 40)
+            if result.reservation is not None:
+                cap.abort_write(result.reservation)
+
+        try:
+            pool.enqueue_store(1, 1, [active_task])
+            self.assertTrue(active_started.wait(timeout=5))
+
+            pool.enqueue_store(
+                2,
+                1,
+                [lambda: queued_task(paths[1])],
+            )
+            pool.enqueue_store(
+                3,
+                1,
+                [lambda: queued_task(paths[2])],
+            )
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.pending_write_count, 1)
+            self.assertEqual(snap.reserved_bytes, 40)
+            self.assertEqual(queued_started, [])
+
+            # Cancels queued tasks without waiting for the active task.
+            pool.shutdown(wait=False)
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.pending_write_count, 1)
+            self.assertEqual(snap.reserved_bytes, 40)
+            self.assertEqual(queued_started, [])
+
+            release_active.set()
+            pool.shutdown(wait=True)
+
+            snap = cap.snapshot()
+            self.assertEqual(snap.pending_write_count, 0)
+            self.assertEqual(snap.reserved_bytes, 0)
+            self.assertEqual(queued_started, [])
+        finally:
+            release_active.set()
+            pool.shutdown(wait=True)
+            cap.close()
+
+        # Normal shutdown released ownership.
+        with FileSystemCapacityManager(
+            namespace_root=str(self.root),
+            max_bytes=120,
+            expected_file_size=None,
+        ):
+            pass
+
+
+if __name__ == "__main__":
+    unittest.main()

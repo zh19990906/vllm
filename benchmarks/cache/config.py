@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PositiveInt = Annotated[int, Field(gt=0)]
+StrictPositiveInt = Annotated[int, Field(strict=True, gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
 Ratio = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -71,8 +72,15 @@ class ServerConfig(StrictModel):
 class FilesystemCacheConfig(StrictModel):
     enabled: bool = True
     root_dir: Path
+    max_bytes: StrictPositiveInt | None = None
     read_threads: PositiveInt = 32
     write_threads: PositiveInt = 16
+
+    @model_validator(mode="after")
+    def require_max_when_enabled(self) -> FilesystemCacheConfig:
+        if self.enabled and self.max_bytes is None:
+            raise ValueError("filesystem.max_bytes is required when enabled")
+        return self
 
 
 class CacheConfig(StrictModel):

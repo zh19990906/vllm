@@ -70,6 +70,20 @@ def test_create_tier_from_registry():
 
     assert isinstance(tier, SecondaryTierManager)
     assert tier.tier_type == "example"
+    assert tier.instance_id == "example"
+
+
+def test_create_tier_instance_id_override():
+    primary_kv_view, offloading_spec = _make_mock_args()
+
+    tier = SecondaryTierFactory.create_secondary_tier(
+        {"type": "example"},
+        primary_kv_view,
+        offloading_spec,
+        instance_id="example:3",
+    )
+
+    assert tier.instance_id == "example:3"
 
 
 def test_create_multiple_tiers():

@@ -124,6 +124,7 @@ class SecondaryTierManager(ABC):
         self._offloading_spec = offloading_spec
         self._primary_kv_view: memoryview = primary_kv_view
         self.tier_type = tier_type
+        self.instance_id = tier_type
 
     @abstractmethod
     def lookup(self, key: OffloadKey, req_context: ReqContext) -> LookupResult:
