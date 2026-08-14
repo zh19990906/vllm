@@ -1,0 +1,62 @@
+name: Publish shellcheck pre-commit fix
+
+on:
+  push:
+    branches:
+      - agent/shellcheck-publish-staging-20260814
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reproduce exact local commit and publish branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE='c4d9fce61ec5a8eadc24dab8698eca7705d005bf'
+          TARGET_TREE='d2ca2a3be2188c0ca38603b6c2f347ad5a07836a'
+          TARGET_COMMIT='17be66c4f8a2f4874f96f092d4e3a507246d1892'
+          TARGET_BRANCH='agent/fix-shellcheck-precommit-determinism'
+
+          cp .github/scripts/replay_shellcheck_precommit_fix.py /tmp/replay.py
+          git reset --hard "$BASE"
+          python /tmp/replay.py
+
+          bash -n tools/pre_commit/shellcheck.sh
+          git diff --check
+
+          mapfile -t changed < <(git diff --name-only)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = 'tools/pre_commit/shellcheck.sh'
+
+          git config user.name 'Your Name'
+          git config user.email 'you@example.com'
+          git config commit.gpgsign false
+          export GIT_AUTHOR_DATE='2026-08-14T09:22:21+08:00'
+          export GIT_COMMITTER_DATE='2026-08-14T09:22:21+08:00'
+
+          git add tools/pre_commit/shellcheck.sh
+          git commit -m 'fix: make shellcheck pre-commit deterministic'
+
+          reproduced_tree="$(git rev-parse 'HEAD^{tree}')"
+          reproduced_commit="$(git rev-parse HEAD)"
+          echo "reproduced_tree=$reproduced_tree"
+          echo "reproduced_commit=$reproduced_commit"
+
+          test "$reproduced_tree" = "$TARGET_TREE"
+          test "$reproduced_commit" = "$TARGET_COMMIT"
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$TARGET_BRANCH" >/dev/null 2>&1; then
+            echo "target branch already exists: $TARGET_BRANCH"
+            exit 1
+          fi
+
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
