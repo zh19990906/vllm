@@ -2,7 +2,7 @@
 
 ## Executive conclusion
 
-Issue #31 is **locally validated and authoritative GitHub pre-commit CI passed on implementation head `2752b4950f0f30eedbb7f6bb3b60a83512a012c4`; this documentation-only refresh requires a fresh CI run after publication before merge**.
+Issue #31 is **locally validated, and authoritative GitHub pre-commit run #208 passed on the latest code-bearing delivery head `451a37fadbfc15051ea8438e7d02483b1cc6602d` after the PR #34 CI-maintenance fix was merged into `main`**.
 
 The filesystem KV-cache tier now treats configured `max_bytes` as a hard logical
 capacity ceiling and accounts both committed bytes and in-flight reservations against
@@ -16,24 +16,28 @@ runtime LRU eviction, both capacity-skip reasons, restart accounting rebuild,
 synchronous smaller-max startup shrink, and rejection of a second namespace owner.
 
 This is filesystem evidence only. It is **not** evidence of physical NVMe performance.
-The implementation is published as Draft PR #33 at
-`agent/issue31-fs-hard-capacity@2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
-Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
-attempt. The PR remains Draft and has not been merged.
+The validated code-bearing delivery head for Draft PR #33 is
+`451a37fadbfc15051ea8438e7d02483b1cc6602d`. Authoritative GitHub pre-commit
+run #208 (`31761549792`) passed on that head. This artifact intentionally does
+not recursively encode the SHA of its own documentation-only refresh; live
+PR #33 metadata is authoritative for the current head and final merge-time CI
+state. The PR remains Draft and has not been merged.
 
 ## Scope and provenance
 
 - Issue: #31, `[P0] filesystem KV cache hard capacity and eviction`.
 - GitHub repository: `zh19990906/vllm`.
-- Live target base observed before validation:
-  `main@c4d9fce61ec5a8eadc24dab8698eca7705d005bf`.
+- Current target base observed before this final status refresh:
+  `main@5ab0016765bfdbd2d45575908a096fbf675b3a84`.
 - Pod-local implementation head before this validation-document commit:
   `949beed012b57281ae8eadd63cc8a674fb1975e0`.
-- GitHub branch `agent/issue31-fs-hard-capacity` now points to
-  `2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+- Latest code-bearing delivery head observed before this documentation refresh:
+  `451a37fadbfc15051ea8438e7d02483b1cc6602d`.
 - Draft PR #33 is open and remains Draft.
-- Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
-  attempt.
+- Authoritative GitHub pre-commit run #208 (`31761549792`) passed on that
+  code-bearing head.
+- Live PR #33 metadata is authoritative for any newer documentation-only head
+  and its required merge-time CI result.
 - Approved design:
   `docs/superpowers/specs/2026-08-12-filesystem-kv-cache-hard-capacity-design.md`.
 - Approved implementation plan:
@@ -196,9 +200,10 @@ restore-vs-recompute decision policy.
 
 No claim is made here that a new end-to-end model-inference benchmark was added specifically
 for Issue #31. The correctness claim is limited to the cache-manager/state-machine behavior
-covered locally plus the existing inference architecture. Authoritative GitHub
-pre-commit CI has passed; final review and explicit user merge authorization are
-still required.
+covered locally plus the existing inference architecture. Authoritative GitHub pre-commit CI passed on the validated code-bearing
+delivery head. Any newer documentation-only head must also satisfy authoritative
+CI before merge; live PR metadata is authoritative for that check. Final review
+and explicit user merge authorization are still required.
 
 ## Evidence-run history
 

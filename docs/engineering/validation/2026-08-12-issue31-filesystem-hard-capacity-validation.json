@@ -1,13 +1,14 @@
 {
-  "base_sha": "c4d9fce61ec5a8eadc24dab8698eca7705d005bf",
+  "base_sha": "5ab0016765bfdbd2d45575908a096fbf675b3a84",
   "ci": {
     "authoritative": true,
-    "status": "implementation_head_passed_docs_refresh_pending",
+    "status": "validated_code_head_passed",
     "workflow": "pre-commit",
-    "run_id": 31682582711,
-    "run_number": 202,
+    "run_id": 31761549792,
+    "run_number": 208,
     "latest_attempt_conclusion": "success",
-    "note": "authoritative pre-commit run #202 passed on implementation head 2752b4950f0f30eedbb7f6bb3b60a83512a012c4; this documentation-only refresh requires a fresh CI run after publication before merge"
+    "note": "authoritative pre-commit run #208 passed on the latest code-bearing delivery head 451a37fadbfc15051ea8438e7d02483b1cc6602d after merging main@5ab0016765bfdbd2d45575908a096fbf675b3a84; this validation artifact intentionally does not recursively encode the SHA of its own documentation-only refresh, so live PR #33 metadata is authoritative for the current head and final merge-time CI state",
+    "validated_head_sha": "451a37fadbfc15051ea8438e7d02483b1cc6602d"
   },
   "design_spec": "docs/superpowers/specs/2026-08-12-filesystem-kv-cache-hard-capacity-design.md",
   "evidence_attempts": [
@@ -96,7 +97,9 @@
     "repository": "zh19990906/vllm",
     "target_branch": "main",
     "draft_pr_number": 33,
-    "implementation_branch_head": "2752b4950f0f30eedbb7f6bb3b60a83512a012c4"
+    "implementation_branch_head": "451a37fadbfc15051ea8438e7d02483b1cc6602d",
+    "implementation_branch_head_semantics": "latest code-bearing head observed before this documentation-only refresh; live PR #33 metadata is authoritative for the current branch head",
+    "target_base_sha": "5ab0016765bfdbd2d45575908a096fbf675b3a84"
   },
   "head_sha": "949beed012b57281ae8eadd63cc8a674fb1975e0",
   "implementation_plan": "docs/superpowers/plans/2026-08-12-issue31-filesystem-kv-cache-hard-capacity.md",
@@ -116,12 +119,12 @@
     "adaptive capacity recommendation",
     "physical NVMe performance claim"
   ],
-  "observed_date": "2026-08-13",
+  "observed_date": "2026-08-14",
   "roadmap_gate": {
     "issue16_blocked_until_issue31_merged_and_closed": true
   },
   "schema_version": 1,
-  "status": "implementation_ci_passed_docs_refresh_pending",
+  "status": "validated_code_head_ci_passed_merge_pending",
   "validated_properties": {
     "accounted_plus_reserved_never_exceeded_max_in_formal_smoke": true,
     "configured_filesystem_size_is_hard_logical_ceiling": true,
@@ -135,5 +138,6 @@
     "shutdown_reservation_lifecycle_locally_covered": true,
     "smaller_max_startup_shrink_observed": true
   },
-  "delivery_head_sha": "2752b4950f0f30eedbb7f6bb3b60a83512a012c4"
+  "delivery_head_sha": "451a37fadbfc15051ea8438e7d02483b1cc6602d",
+  "delivery_head_sha_semantics": "validated code-bearing delivery head; a newer documentation-only head may exist after this artifact is refreshed"
 }

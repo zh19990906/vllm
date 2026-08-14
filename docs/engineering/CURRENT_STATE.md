@@ -1,6 +1,6 @@
 # Current Engineering State
 
-Observed: **2026-08-13**.
+Observed: **2026-08-14**.
 
 This file is intentionally mutable. Verify GitHub issue, PR, branch, and commit metadata
 before acting if this file is older than the current session.
@@ -69,16 +69,22 @@ read pins, restart recovery, exclusive namespace ownership, shutdown lifecycle
 invariants, and low-cardinality capacity metrics.
 
 The formal filesystem validation was produced from implementation head
-`949beed012b57281ae8eadd63cc8a674fb1975e0`. The current delivery head is
-`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`, which retains that behavior plus
-repository quality-gate remediation. Formal filesystem evidence is recorded in:
+`949beed012b57281ae8eadd63cc8a674fb1975e0`. The latest code-bearing delivery
+head observed before this status refresh is
+`451a37fadbfc15051ea8438e7d02483b1cc6602d`. It retains the validated behavior,
+repository quality-gate remediation, final validation-document changes, and the
+PR #34 deterministic ShellCheck CI fix from current `main`. This mutable status
+refresh may create a newer documentation-only PR head; live PR metadata remains
+authoritative for the current head. Formal filesystem evidence is recorded in:
 
 [`validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md`](validation/2026-08-12-issue31-filesystem-hard-capacity-validation.md).
 
-GitHub branch `agent/issue31-fs-hard-capacity` now points to
-`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. Draft PR #33 is open, and
-authoritative GitHub pre-commit run #202 passed on its latest attempt. Do not
-describe Issue #31 as merged or closed.
+Before this status refresh, Draft PR #33's latest code-bearing head was
+`451a37fadbfc15051ea8438e7d02483b1cc6602d`, based on
+`main@5ab0016765bfdbd2d45575908a096fbf675b3a84`. Authoritative GitHub
+pre-commit run #208 (`31761549792`) passed on that head. The PR remains Draft
+and unmerged. Any newer documentation-only head must also pass authoritative CI
+before merge; live GitHub PR metadata is authoritative for that check.
 
 ### Next P0 stage
 
@@ -187,24 +193,23 @@ The machine-readable companion is:
 ## Current continuation record
 
 Live GitHub `main` was observed at
-`c4d9fce61ec5a8eadc24dab8698eca7705d005bf`.
+`5ab0016765bfdbd2d45575908a096fbf675b3a84`, the merge commit for PR #34.
 
-Draft PR #33 targets `main` from
-`agent/issue31-fs-hard-capacity@2752b4950f0f30eedbb7f6bb3b60a83512a012c4`.
+Before this status refresh, Draft PR #33's latest code-bearing head was
+`451a37fadbfc15051ea8438e7d02483b1cc6602d`, whose parents are the prior
+Issue #31 delivery head and `main@5ab0016765bfdbd2d45575908a096fbf675b3a84`.
 
-Authoritative GitHub pre-commit run #202 (`31682582711`) passed on its latest
-attempt on implementation head
-`2752b4950f0f30eedbb7f6bb3b60a83512a012c4`. This documentation-only refresh
-will create a newer delivery head, which requires a fresh authoritative CI run
-after publication. The PR remains Draft and unmerged. Green CI is not merge
-authorization.
+Authoritative GitHub pre-commit run #208 (`31761549792`) passed on that
+code-bearing head. This mutable file intentionally does not recursively encode
+the SHA or CI run of its own documentation-only refresh. Live PR #33 metadata
+is authoritative for the current head and the latest authoritative CI result.
+Merge remains gated on authoritative CI for whatever head is current at merge
+time, final review, and explicit user authorization.
 
-Pytest is unavailable in the Pod, and no pytest CI job was observed for the
-current PR head. Focused Issue #31 unittest, smoke-contract, mypy, repository
-policy, compile, and formal real-filesystem evidence remain recorded in the
-validation artifact.
+Pytest is unavailable in the Pod, and no pytest CI job was observed for PR #33.
+Focused Issue #31 unittest, smoke-contract, mypy, repository policy, compile,
+and formal real-filesystem evidence remain recorded in the validation artifact.
 
-The next step is final review. Merge requires explicit user authorization.
 Issue #16 remains blocked until Issue #31 is merged and closed.
 
 ## Important interpretation rules
