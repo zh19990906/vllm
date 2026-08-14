@@ -1,0 +1,19 @@
+name: Publish Issue31 merge
+
+on:
+  push:
+    branches:
+      - agent/issue31-merge-publish-staging-20260814
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reproduce exact local merge and publish branch
+        run: bash .github/scripts/publish_issue31_merge.sh
